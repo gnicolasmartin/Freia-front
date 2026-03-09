@@ -133,7 +133,7 @@ export default function FrontCard({ front, onEdit, onDelete, onPublish, onUnpubl
             </span>
           ) : (
             <a
-              href={`https://${front.subdomain}.freiatech.com`}
+              href={`/f/${front.subdomain}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[#dd7430] hover:text-orange-400 font-mono text-xs transition-colors"
