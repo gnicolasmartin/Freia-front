@@ -32,6 +32,7 @@ import {
   WhatsAppSendError,
   type WATemplateComponent,
 } from "@/lib/whatsapp-sender";
+import { lookupByCompanyId } from "@/lib/credential-lookup";
 
 interface SendTemplateBody {
   to: string;
@@ -40,6 +41,7 @@ interface SendTemplateBody {
   components: WATemplateComponent[];
   phoneNumberId?: string;
   accessToken?: string;
+  companyId?: string;
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -77,17 +79,31 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  // Credentials: env vars take precedence over request body
-  const phoneNumberId =
-    process.env.WHATSAPP_PHONE_NUMBER_ID ?? body.phoneNumberId;
-  const accessToken =
-    process.env.WHATSAPP_ACCESS_TOKEN ?? body.accessToken;
+  // Credentials resolution (multi-tenant):
+  // 1. If companyId provided → lookup from backend DB
+  // 2. Fallback to env vars
+  // 3. Fallback to request body (dev)
+  let phoneNumberId: string | undefined;
+  let accessToken: string | undefined;
+
+  if (body.companyId) {
+    const credentials = await lookupByCompanyId(body.companyId);
+    if (credentials) {
+      phoneNumberId = credentials.phoneNumberId;
+      accessToken = credentials.accessToken;
+    }
+  }
+
+  if (!phoneNumberId || !accessToken) {
+    phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? body.phoneNumberId;
+    accessToken = process.env.WHATSAPP_ACCESS_TOKEN ?? body.accessToken;
+  }
 
   if (!phoneNumberId || !accessToken) {
     return NextResponse.json(
       {
         error:
-          "No WhatsApp credentials configured. Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN.",
+          "No WhatsApp credentials configured. Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN, or provide companyId.",
       },
       { status: 401 }
     );

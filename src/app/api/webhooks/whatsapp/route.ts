@@ -18,8 +18,10 @@ import {
   verifyHandshake,
   verifySignature,
   parseWhatsAppPayload,
+  extractPhoneNumberId,
 } from "@/lib/whatsapp-webhook";
 import { enqueue } from "@/lib/webhook-event-queue";
+import { lookupByPhoneNumberId } from "@/lib/credential-lookup";
 
 // ─── Deduplication — prevent Meta webhook retries from creating duplicates ───
 
@@ -89,31 +91,46 @@ export async function POST(request: NextRequest): Promise<Response> {
     return new NextResponse("Bad Request", { status: 400 });
   }
 
-  // Signature validation (skip if app secret not configured)
-  const appSecret = process.env.WHATSAPP_APP_SECRET;
-  if (appSecret) {
-    const signatureHeader =
-      request.headers.get("X-Hub-Signature-256") ?? "";
-
-    if (!verifySignature(rawBody, signatureHeader, appSecret)) {
-      console.warn(
-        "[WhatsApp Webhook] Signature validation failed — possible spoofed request."
-      );
-      return new NextResponse("Unauthorized", { status: 401 });
-    }
-  } else {
-    // Log once so operators know to configure it
-    console.warn(
-      "[WhatsApp Webhook] WHATSAPP_APP_SECRET not set — skipping signature validation."
-    );
-  }
-
-  // Parse JSON
+  // Parse JSON first (needed to extract phone_number_id for multi-tenant signature validation)
   let payload: unknown;
   try {
     payload = JSON.parse(rawBody);
   } catch {
     return new NextResponse("Bad Request: invalid JSON", { status: 400 });
+  }
+
+  // Multi-tenant: extract phone_number_id and lookup company credentials
+  const phoneNumberId = extractPhoneNumberId(payload);
+  let companyId: string | undefined;
+
+  if (phoneNumberId) {
+    const credentials = await lookupByPhoneNumberId(phoneNumberId);
+    if (credentials) {
+      companyId = credentials.companyId;
+
+      // Use company-specific app_secret for signature validation if available
+      if (credentials.appSecret) {
+        const signatureHeader = request.headers.get("X-Hub-Signature-256") ?? "";
+        if (!verifySignature(rawBody, signatureHeader, credentials.appSecret)) {
+          console.warn(`[WhatsApp Webhook] Signature validation failed for company=${companyId}`);
+          return new NextResponse("Unauthorized", { status: 401 });
+        }
+      }
+    } else {
+      console.warn(`[WhatsApp Webhook] No company found for phone_number_id=${phoneNumberId}`);
+    }
+  }
+
+  // Fallback: global signature validation via env var
+  if (!companyId) {
+    const appSecret = process.env.WHATSAPP_APP_SECRET;
+    if (appSecret) {
+      const signatureHeader = request.headers.get("X-Hub-Signature-256") ?? "";
+      if (!verifySignature(rawBody, signatureHeader, appSecret)) {
+        console.warn("[WhatsApp Webhook] Signature validation failed — possible spoofed request.");
+        return new NextResponse("Unauthorized", { status: 401 });
+      }
+    }
   }
 
   // Normalize to internal channel events
@@ -122,6 +139,12 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Enqueue each event (skip duplicates from Meta retries)
   let enqueued = 0;
   for (const event of events) {
+    // Attach companyId to the event for downstream processing
+    if (companyId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (event as any).companyId = companyId;
+    }
+
     // Use WhatsApp messageId for dedup on message events, internal id for others
     const dedupeKey = event.type === "channel.message.received" ? event.messageId : event.id;
     if (isDuplicate(dedupeKey)) {
@@ -134,7 +157,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   if (enqueued > 0) {
     console.info(
-      `[WhatsApp Webhook] Enqueued ${enqueued} event(s):`,
+      `[WhatsApp Webhook] Enqueued ${enqueued} event(s) for company=${companyId ?? "unknown"}:`,
       events.map((e) => `${e.type}(${e.id.slice(0, 8)})`).join(", ")
     );
   }

@@ -44,6 +44,8 @@ export interface ActiveConversation {
 export interface WACredentials {
   phoneNumberId: string;
   accessToken: string;
+  /** Multi-tenant: company that owns these credentials. */
+  companyId?: string;
 }
 
 export interface ProcessMessageInput {
@@ -180,6 +182,7 @@ async function sendWhatsAppMessage(
     if (credentials) {
       body.phoneNumberId = credentials.phoneNumberId;
       body.accessToken = credentials.accessToken;
+      if (credentials.companyId) body.companyId = credentials.companyId;
     }
     if (interactive) {
       body.interactive = interactive;

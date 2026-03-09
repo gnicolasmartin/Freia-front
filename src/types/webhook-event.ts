@@ -68,6 +68,8 @@ export interface MessageReceivedEvent {
   wabaId: string;
   /** Original message timestamp from WhatsApp (ISO). */
   timestamp: string;
+  /** Company that owns this phone number (resolved via multi-tenant lookup). */
+  companyId?: string;
 
   content: MessageContent;
   /** Display name from the WhatsApp contact profile, if available. */
@@ -91,6 +93,8 @@ export interface MessageStatusUpdatedEvent {
   timestamp: string;
   /** Phone number of the recipient. */
   recipientId: string;
+  /** Company that owns this phone number (resolved via multi-tenant lookup). */
+  companyId?: string;
   /** Present when status === "failed". */
   error?: {
     code: number;

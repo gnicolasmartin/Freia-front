@@ -220,7 +220,7 @@ export function MessageProcessorProvider({
 
       const { agents: currentAgents, flows: currentFlows, routingConfig: currentRouting, policies: currentPolicies, tools: currentTools, products: currentProducts } = dataRef.current;
       const openaiApiKey = getRawKey("openai") ?? undefined;
-      const waCredentials = getWACredentials();
+      const localWACredentials = getWACredentials();
       const testMode = localStorage.getItem("freia_wa_test_mode") === "true";
 
       for (const event of messageEvents) {
@@ -235,6 +235,12 @@ export function MessageProcessorProvider({
           processedMessageIds.clear();
           for (const id of entries.slice(-100)) processedMessageIds.add(id);
         }
+
+        // Multi-tenant: if event has companyId, use it for credential resolution
+        // The send route will lookup credentials from the backend DB
+        const waCredentials = event.companyId
+          ? { phoneNumberId: event.phoneNumberId, accessToken: "", companyId: event.companyId }
+          : localWACredentials;
 
         try {
           const result = await processInboundMessage({

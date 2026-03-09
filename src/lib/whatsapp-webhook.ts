@@ -349,3 +349,27 @@ export function parseWhatsAppPayload(payload: unknown): ChannelEvent[] {
 
   return events;
 }
+
+/**
+ * Extracts the first phone_number_id from a raw WhatsApp webhook payload.
+ * Used for multi-tenant credential lookup before full parsing.
+ */
+export function extractPhoneNumberId(payload: unknown): string | null {
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    (payload as WAPayload).object !== "whatsapp_business_account"
+  ) {
+    return null;
+  }
+
+  const body = payload as WAPayload;
+  for (const entry of body.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      const phoneNumberId = change.value?.metadata?.phone_number_id;
+      if (phoneNumberId) return phoneNumberId;
+    }
+  }
+
+  return null;
+}
