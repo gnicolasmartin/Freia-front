@@ -147,6 +147,19 @@ interface InteractivePayload {
   rows?: Array<{ id: string; title: string; description?: string }>;
 }
 
+/**
+ * Normalize Argentine phone numbers for the WhatsApp Cloud API.
+ * Inbound messages arrive with the "9" (e.g. 5491160527827),
+ * but outbound sends require it without the "9" (e.g. 541160527827).
+ */
+function normalizePhoneForSend(phone: string): string {
+  // Argentine mobile: 549XXXXXXXXXX → 54XXXXXXXXXX
+  if (phone.startsWith("549") && phone.length === 13) {
+    return "54" + phone.slice(3);
+  }
+  return phone;
+}
+
 async function sendWhatsAppMessage(
   to: string,
   text: string,
@@ -154,14 +167,16 @@ async function sendWhatsAppMessage(
   testMode: boolean,
   interactive?: InteractivePayload
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const normalizedTo = normalizePhoneForSend(to);
+
   if (testMode) {
-    console.info(`[MessageProcessor] TEST MODE — would send to ${to}: "${text.slice(0, 80)}..." interactive=${interactive?.type ?? "none"}`);
+    console.info(`[MessageProcessor] TEST MODE — would send to ${normalizedTo}: "${text.slice(0, 80)}..." interactive=${interactive?.type ?? "none"}`);
     return { success: true, messageId: `wamid.test.${Date.now()}` };
   }
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body: Record<string, any> = { to, text };
+    const body: Record<string, any> = { to: normalizedTo, text };
     if (credentials) {
       body.phoneNumberId = credentials.phoneNumberId;
       body.accessToken = credentials.accessToken;
