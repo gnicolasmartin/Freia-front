@@ -47,6 +47,8 @@ interface ConversationsContextType {
   ) => void;
   incrementRetry: (conversationId: string, nodeId: string) => void;
   addToolLog: (conversationId: string, log: ToolExecutionLog) => void;
+  /** Insert or update a full ConversationState (used by the WhatsApp message processor). */
+  upsertConversation: (conversation: ConversationState) => void;
 
   // Queries
   getConversation: (conversationId: string) => ConversationState | undefined;
@@ -187,6 +189,21 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
     [updateConversation]
   );
 
+  const handleUpsertConversation = useCallback(
+    (conversation: ConversationState) => {
+      setConversations((prev) => {
+        const idx = prev.findIndex((c) => c.id === conversation.id);
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = conversation;
+          return updated;
+        }
+        return [...prev, conversation];
+      });
+    },
+    []
+  );
+
   // --- Queries ---
 
   const getConversation = useCallback(
@@ -271,6 +288,7 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
         updateVars: handleUpdateVars,
         incrementRetry: handleIncrementRetry,
         addToolLog: handleAddToolLog,
+        upsertConversation: handleUpsertConversation,
         getConversation,
         getActiveConversations: handleGetActiveConversations,
         getConversationsForFlow: handleGetConversationsForFlow,

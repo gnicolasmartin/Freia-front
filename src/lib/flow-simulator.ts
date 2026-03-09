@@ -1608,8 +1608,80 @@ export async function stepSimulation(
         return words.some((w) => levenshtein(w, token) <= maxDist);
       };
 
+      // ── Tire dimension parsing ──
+      // Recognizes patterns like: 195/55/16, 195/55 16, 195 55 16, 195/55R16, 195/55 R16, R16, etc.
+      interface TireDimension {
+        width?: string;   // e.g. "195"
+        profile?: string; // e.g. "55"
+        rim?: string;     // e.g. "16"
+      }
+
+      function parseTireDimension(input: string): TireDimension | null {
+        const s = input.replace(/\s+/g, " ").trim().toLowerCase();
+        // Full: 195/55/16 or 195/55 16 or 195/55R16 or 195/55 R16
+        let m = s.match(/(\d{3})\s*\/\s*(\d{2,3})\s*[\/\s]*r?\s*(\d{2})/i);
+        if (m) return { width: m[1], profile: m[2], rim: m[3] };
+        // Space-separated: 195 55 16
+        m = s.match(/^(\d{3})\s+(\d{2,3})\s+(\d{2})$/);
+        if (m) return { width: m[1], profile: m[2], rim: m[3] };
+        // Partial: 195/55 (no rim)
+        m = s.match(/(\d{3})\s*\/\s*(\d{2,3})$/);
+        if (m) return { width: m[1], profile: m[2] };
+        // Just rim: R16 or r16
+        m = s.match(/^r(\d{2})$/i);
+        if (m) return { rim: m[1] };
+        return null;
+      }
+
+      // Extract dimension from product description: "185/65 R15 88H" → { width: "185", profile: "65", rim: "15" }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      function extractProductDimension(p: Record<string, any>): TireDimension | null {
+        const desc = String(p.description ?? "");
+        const m = desc.match(/(\d{3})\/(\d{2,3})\s*R(\d{2})/i);
+        if (m) return { width: m[1], profile: m[2], rim: m[3] };
+        return null;
+      }
+
+      function dimensionMatches(productDim: TireDimension | null, queryDim: TireDimension): boolean {
+        if (!productDim) return false;
+        if (queryDim.width && productDim.width !== queryDim.width) return false;
+        if (queryDim.profile && productDim.profile !== queryDim.profile) return false;
+        if (queryDim.rim && productDim.rim !== queryDim.rim) return false;
+        return true;
+      }
+
+      // Try to parse a dimension from the full query
+      const queryDim = parseTireDimension(q);
+
+      // Also try to extract dimension from individual parts of the query
+      // e.g. "pirelli 195/55/16" → brand token "pirelli" + dimension
+      let embeddedDim: TireDimension | null = null;
+      if (!queryDim) {
+        // Split query and try to find dimension pattern within tokens
+        const parts = q.split(/\s+/);
+        for (const part of parts) {
+          const pd = parseTireDimension(part);
+          if (pd && !embeddedDim) {
+            embeddedDim = pd;
+            break;
+          }
+        }
+        // Also try joining consecutive numeric parts: "195 55 16"
+        if (!embeddedDim) {
+          const joined = q.replace(/[a-záéíóúñü]+/gi, "").trim();
+          const jd = parseTireDimension(joined);
+          if (jd) embeddedDim = jd;
+        }
+      }
+
+      const activeDim = queryDim ?? embeddedDim;
+
       // Tokenize query: split into meaningful words, drop stopwords
-      const tokens = q.split(/\s+/).filter((t) => t.length > 1 && !STOPWORDS.has(t));
+      const baseTokens = q.split(/\s+/).filter((t) => t.length > 1 && !STOPWORDS.has(t));
+      // If we found a dimension, remove numeric/dimension tokens so they don't interfere with text search
+      const tokens = activeDim
+        ? baseTokens.filter((t) => !/^\d{2,3}$/.test(t) && !/^\d{3}\//.test(t) && !/^r\d+$/i.test(t))
+        : baseTokens;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const getHaystack = (p: Record<string, any>) =>
@@ -1624,6 +1696,13 @@ export async function stepSimulation(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const exactMatch = (p: Record<string, any>) => {
         const haystack = getHaystack(p);
+        // Check dimension match first if applicable
+        if (activeDim) {
+          const pDim = extractProductDimension(p);
+          if (!dimensionMatches(pDim, activeDim)) return false;
+          // If only dimension was provided (no text tokens), dimension match is enough
+          if (tokens.length === 0) return true;
+        }
         if (tokens.length === 0) return haystack.includes(q);
         return tokens.every((t) => haystack.includes(t));
       };
@@ -1631,6 +1710,11 @@ export async function stepSimulation(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fuzzyMatch = (p: Record<string, any>) => {
         const haystack = getHaystack(p);
+        if (activeDim) {
+          const pDim = extractProductDimension(p);
+          if (!dimensionMatches(pDim, activeDim)) return false;
+          if (tokens.length === 0) return true;
+        }
         if (tokens.length === 0) return false;
         return tokens.every((t) => fuzzyContains(haystack, t));
       };

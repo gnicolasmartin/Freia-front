@@ -70,6 +70,7 @@ export interface ToolVersion {
 
 export interface ToolDefinition {
   id: string;
+  companyId?: string;
   name: string;
   description: string;
   category: ToolCategory;

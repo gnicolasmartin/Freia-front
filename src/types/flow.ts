@@ -40,6 +40,7 @@ export interface FlowVersion {
 
 export interface Flow {
   id: string;
+  companyId?: string;
   name: string;
   description?: string;
   status: string;

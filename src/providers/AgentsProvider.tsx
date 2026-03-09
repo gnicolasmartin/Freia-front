@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { Agent, AgentFormData } from "@/types/agent";
 import { EMPTY_AGENT_FORM } from "@/types/agent";
+import { getSessionCompanyId } from "@/lib/get-session-company";
 
 interface AgentsContextType {
   agents: Agent[];
@@ -104,6 +105,7 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
     const newAgent: Agent = {
       id: crypto.randomUUID(),
       ...data,
+      companyId: data.companyId ?? getSessionCompanyId(),
       createdAt: now,
       updatedAt: now,
     };

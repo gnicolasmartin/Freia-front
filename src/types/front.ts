@@ -145,6 +145,7 @@ export interface FrontVersion {
 
 export interface Front {
   id: string;
+  companyId?: string;
   name: string;
   description: string;
   status: FrontStatus;

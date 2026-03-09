@@ -120,6 +120,7 @@ export interface PolicyVersion {
 
 export interface Policy {
   id: string;
+  companyId?: string;
   name: string;
   description: string;
   scope: PolicyScope;

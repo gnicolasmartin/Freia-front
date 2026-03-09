@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { Flow, FlowFormData, FlowNode, FlowEdge, FlowVersion, FlowVariable, TestPreset } from "@/types/flow";
 import { DEFAULT_START_NODE } from "@/types/flow";
+import { getSessionCompanyId } from "@/lib/get-session-company";
 
 interface FlowsContextType {
   flows: Flow[];
@@ -74,6 +75,7 @@ export function FlowsProvider({ children }: { children: ReactNode }) {
     const now = new Date().toISOString();
     const newFlow: Flow = {
       id: crypto.randomUUID(),
+      companyId: data.companyId ?? getSessionCompanyId(),
       ...data,
       nodes: [{ ...DEFAULT_START_NODE }],
       edges: [],

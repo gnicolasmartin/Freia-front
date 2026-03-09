@@ -3,12 +3,17 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { seedDemoCubiertas } from "@/lib/seed-demo-cubiertas";
 import { seedDemoImportador } from "@/lib/seed-demo-importador";
+import { resolvePermissions } from "@/types/user-management";
+import type { SystemUser, Profile, Company, ModulePermission, SystemRole } from "@/types/user-management";
 
 interface User {
   id: string;
   email: string;
   name: string;
   role: string;
+  companyId: string | null;
+  profileId: string | null;
+  permissions: ModulePermission[];
 }
 
 interface AuthContextType {
@@ -21,43 +26,27 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Usuarios hardcodeados para testing
-const DEMO_USERS = {
+// Fallback — only used if freia_system_users is empty (fresh install without seed)
+const DEMO_USERS: Record<string, { password: string; user: User }> = {
   "demo@freia.ai": {
     password: "demo123",
-    user: {
-      id: "1",
-      email: "demo@freia.ai",
-      name: "Usuario Demo",
-      role: "admin",
-    },
+    user: { id: "1", email: "demo@freia.ai", name: "Usuario Demo", role: "company_admin", companyId: "company_cubiertas", profileId: null, permissions: [] },
   },
   "admin@freia.ai": {
     password: "admin123",
-    user: {
-      id: "2",
-      email: "admin@freia.ai",
-      name: "Administrador",
-      role: "admin",
-    },
+    user: { id: "2", email: "admin@freia.ai", name: "Administrador", role: "company_admin", companyId: "company_cubiertas", profileId: null, permissions: [] },
   },
   "user@freia.ai": {
     password: "user123",
-    user: {
-      id: "3",
-      email: "user@freia.ai",
-      name: "Usuario Estándar",
-      role: "user",
-    },
+    user: { id: "3", email: "user@freia.ai", name: "Usuario Estándar", role: "company_user", companyId: "company_cubiertas", profileId: null, permissions: [] },
   },
   "importador@freia.ai": {
     password: "import123",
-    user: {
-      id: "4",
-      email: "importador@freia.ai",
-      name: "Importador Demo",
-      role: "admin",
-    },
+    user: { id: "4", email: "importador@freia.ai", name: "Importador Demo", role: "company_admin", companyId: "company_importador", profileId: null, permissions: [] },
+  },
+  "root@freia.ai": {
+    password: "root123",
+    user: { id: "0", email: "root@freia.ai", name: "Sysadmin Freia", role: "root", companyId: null, profileId: null, permissions: [] },
   },
 };
 
@@ -81,20 +70,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
-    
+
     // Simular delay de red
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
-    const userCredentials = DEMO_USERS[email as keyof typeof DEMO_USERS];
+    // Try system users first
+    const systemUsersRaw = localStorage.getItem("freia_system_users");
+    const systemUsers: SystemUser[] = systemUsersRaw ? JSON.parse(systemUsersRaw) : [];
 
-    if (!userCredentials || userCredentials.password !== password) {
-      setIsLoading(false);
-      throw new Error("Email o contraseña incorrectos");
+    let sessionUser: User | null = null;
+
+    if (systemUsers.length > 0) {
+      const found = systemUsers.find(
+        (u) => u.email === email && u.password === password,
+      );
+
+      if (!found) {
+        setIsLoading(false);
+        throw new Error("Email o contraseña incorrectos");
+      }
+
+      if (found.status === "disabled") {
+        setIsLoading(false);
+        throw new Error("Tu cuenta se encuentra deshabilitada. Contacta al administrador.");
+      }
+
+      // Check company status for non-root users
+      if (found.companyId) {
+        const companiesRaw = localStorage.getItem("freia_companies");
+        const companies: Company[] = companiesRaw ? JSON.parse(companiesRaw) : [];
+        const company = companies.find((c) => c.id === found.companyId);
+        if (company?.status === "suspended") {
+          setIsLoading(false);
+          throw new Error("Tu empresa se encuentra suspendida. Contacta al administrador.");
+        }
+      }
+
+      // Resolve permissions from profile
+      const profilesRaw = localStorage.getItem("freia_profiles");
+      const profiles: Profile[] = profilesRaw ? JSON.parse(profilesRaw) : [];
+      const profile = found.profileId
+        ? profiles.find((p) => p.id === found.profileId) ?? null
+        : null;
+      const permissions = resolvePermissions(found.role, profile);
+
+      // Update lastLoginAt
+      const updatedUsers = systemUsers.map((u) =>
+        u.id === found.id ? { ...u, lastLoginAt: new Date().toISOString() } : u,
+      );
+      localStorage.setItem("freia_system_users", JSON.stringify(updatedUsers));
+
+      sessionUser = {
+        id: found.id,
+        email: found.email,
+        name: found.name,
+        role: found.role,
+        companyId: found.companyId,
+        profileId: found.profileId,
+        permissions,
+      };
+    } else {
+      // Fallback to hardcoded demo users
+      const fallback = DEMO_USERS[email];
+      if (!fallback || fallback.password !== password) {
+        setIsLoading(false);
+        throw new Error("Email o contraseña incorrectos");
+      }
+      const permissions = resolvePermissions(fallback.user.role as SystemRole, null);
+      sessionUser = { ...fallback.user, permissions };
     }
 
-    const userData = userCredentials.user;
-    setUser(userData);
-    localStorage.setItem("freia_user", JSON.stringify(userData));
+    setUser(sessionUser);
+    localStorage.setItem("freia_user", JSON.stringify(sessionUser));
 
     // Seed demo data on first login — providers already mounted, so reload
     if (email === "demo@freia.ai" && seedDemoCubiertas()) {

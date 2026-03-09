@@ -14,7 +14,8 @@ import type { Agent } from "@/types/agent";
 import type { Front, FrontVersion, FrontPage, FrontSection } from "@/types/front";
 import { DEFAULT_FRONT_AUTH_CONFIG } from "@/types/front-auth";
 
-const SEED_KEY = "freia_seed_importador_v2";
+const SEED_KEY = "freia_seed_importador_v3";
+const COMPANY_ID = "company_importador";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -205,6 +206,7 @@ const flowVars: FlowVariable[] = [
 
 const FLOW: Flow = {
   id: flowId,
+  companyId: COMPANY_ID,
   name: "Extracción de Precios — Importaciones",
   description: "Flujo de extracción automática de precios desde mensajes de WhatsApp de proveedores.",
   status: "active",
@@ -225,6 +227,7 @@ const agentId = uid();
 
 const AGENT: Agent = {
   id: agentId,
+  companyId: COMPANY_ID,
   name: "Agente de Importaciones",
   description: "Lee mensajes de WhatsApp de proveedores, extrae precios y actualiza la matriz de comparación de precios.",
   status: "active",
@@ -418,6 +421,7 @@ const frontVersion: FrontVersion = {
 
 const FRONT: Front = {
   id: frontId,
+  companyId: COMPANY_ID,
   name: "Panel de Importaciones",
   description: "Front de gestión de importaciones con comparativa de precios de proveedores.",
   status: "published",
@@ -435,7 +439,7 @@ const FRONT: Front = {
 
 // ── Seed function ────────────────────────────────────────────────────────────
 
-const OLD_SEED_KEYS: string[] = ["freia_seed_importador_v1"];
+const OLD_SEED_KEYS: string[] = ["freia_seed_importador_v1", "freia_seed_importador_v2"];
 
 export function seedDemoImportador(): boolean {
   if (typeof window === "undefined") return false;
@@ -444,7 +448,7 @@ export function seedDemoImportador(): boolean {
   for (const k of OLD_SEED_KEYS) localStorage.removeItem(k);
 
   // Invalidate other demo's sentinel so it can re-seed when switching back
-  localStorage.removeItem("freia_seed_cubiertas_v15");
+  localStorage.removeItem("freia_seed_cubiertas_v16");
 
   // ALWAYS clean other demo's data (runs even if already seeded)
   let cleaned = false;
@@ -476,7 +480,7 @@ export function seedDemoImportador(): boolean {
     if (cleaned) console.log("[seed-importador] cleaned other demo data");
     return cleaned;
   }
-  console.log("[seed-importador] seeding v2 data...");
+  console.log("[seed-importador] seeding v3 data...");
 
   try {
     // Upsert: remove items matching dedup key, then append fresh ones
@@ -519,7 +523,7 @@ export function seedDemoImportador(): boolean {
     } catch { /* ignore */ }
 
     // Seed all data
-    upsert("freia_products", PRODUCTS, "sku");
+    upsert("freia_products", PRODUCTS.map((p) => ({ ...p, companyId: COMPANY_ID })), "sku");
     upsert("freia_flows", [FLOW], "name");
     upsert("freia_agents", [AGENT], "name");
     upsert("freia_fronts", [FRONT], "name");
@@ -528,7 +532,7 @@ export function seedDemoImportador(): boolean {
     localStorage.setItem("freia_import_messages", JSON.stringify(SUPPLIER_MESSAGES));
 
     localStorage.setItem(SEED_KEY, "1");
-    console.log("[seed-importador] v2 done.");
+    console.log("[seed-importador] v3 done.");
     return true;
   } catch (err) {
     console.error("[seed-importador] error:", err);

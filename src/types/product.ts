@@ -9,6 +9,7 @@ export interface ProductVariant {
 
 export interface Product {
   id: string;
+  companyId?: string;
   name: string;
   sku: string;
   description: string;

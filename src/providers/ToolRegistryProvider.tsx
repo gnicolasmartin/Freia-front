@@ -11,6 +11,7 @@ import {
 import type { ToolParamDef } from "@/types/flow";
 import type { ToolDefinition, ToolFormData, ToolVersion } from "@/types/tool-registry";
 import { DEFAULT_TOOLS } from "@/types/tool-registry";
+import { getSessionCompanyId } from "@/lib/get-session-company";
 
 interface ToolRegistryContextType {
   tools: ToolDefinition[];
@@ -61,6 +62,7 @@ export function ToolRegistryProvider({ children }: { children: ReactNode }) {
     const newTool: ToolDefinition = {
       ...data,
       id: data.id || crypto.randomUUID(),
+      companyId: data.companyId ?? getSessionCompanyId(),
       createdAt: now,
       updatedAt: now,
       versions: [],

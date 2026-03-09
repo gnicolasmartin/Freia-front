@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { Product, VariantType, Discount } from "@/types/product";
 import { addStockAuditEntry } from "@/lib/stock-audit";
+import { getSessionCompanyId } from "@/lib/get-session-company";
 import type { StockAuditChange } from "@/types/stock-audit";
 
 const AUDIT_USER = "Admin";
@@ -73,7 +74,7 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
 
   const addProduct = (data: Omit<Product, "id" | "createdAt" | "updatedAt">) => {
     const now = new Date().toISOString();
-    const newProduct = { ...data, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
+    const newProduct = { ...data, companyId: data.companyId ?? getSessionCompanyId(), id: crypto.randomUUID(), createdAt: now, updatedAt: now };
     persistProducts([...products, newProduct]);
     addStockAuditEntry({
       action: "product_created",

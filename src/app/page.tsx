@@ -130,10 +130,10 @@ export default function LoginPage() {
                   📝 CREDENCIALES DE PRUEBA:
                 </p>
                 <div className="space-y-1 text-xs text-blue-300">
-                  <p>• <span className="font-mono">demo@freia.ai</span> / <span className="font-mono">demo123</span></p>
-                  <p>• <span className="font-mono">admin@freia.ai</span> / <span className="font-mono">admin123</span></p>
-                  <p>• <span className="font-mono">user@freia.ai</span> / <span className="font-mono">user123</span></p>
-                  <p>• <span className="font-mono">importador@freia.ai</span> / <span className="font-mono">import123</span></p>
+                  <p>• <span className="font-mono">root@freia.ai</span> / <span className="font-mono">root123</span> <span className="text-red-300">(sysadmin)</span></p>
+                  <p>• <span className="font-mono">demo@freia.ai</span> / <span className="font-mono">demo123</span> <span className="text-amber-300">(admin empresa)</span></p>
+                  <p>• <span className="font-mono">user@freia.ai</span> / <span className="font-mono">user123</span> <span className="text-sky-300">(usuario limitado)</span></p>
+                  <p>• <span className="font-mono">importador@freia.ai</span> / <span className="font-mono">import123</span> <span className="text-amber-300">(admin empresa)</span></p>
                 </div>
               </div>
 

@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
+import { usePermissions } from "@/lib/use-permissions";
+import { ROLE_CONFIG } from "@/types/user-management";
+import type { TopLevelModule } from "@/types/user-management";
 import {
   LayoutDashboard,
   Bot,
@@ -12,6 +15,7 @@ import {
   Plug,
   Target,
   Shield,
+  ShieldAlert,
   ClipboardList,
   Settings,
   Radio,
@@ -23,31 +27,50 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+interface MenuItem {
+  name: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  moduleKey: TopLevelModule | "sysadmin";
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { isRoot, canAccessModule, role } = usePermissions();
   const [isOpen, setIsOpen] = useState(false);
 
-  const allMenuItems = [
-    { name: "Dashboard",         href: "/dashboard",    icon: LayoutDashboard, adminOnly: false },
-    { name: "Agentes",           href: "/agents",       icon: Bot,             adminOnly: false },
-    { name: "Flujos",            href: "/flows",        icon: GitBranch,       adminOnly: false },
-    { name: "Herramientas",      href: "/tools",        icon: Wrench,          adminOnly: false },
-    { name: "Integraciones",     href: "/integrations", icon: Plug,            adminOnly: false },
-    { name: "Conversaciones",    href: "/conversations",icon: MessageSquare,   adminOnly: false },
-    { name: "Leads",             href: "/leads",        icon: Target,          adminOnly: false },
-    { name: "Stock / Productos", href: "/stock",        icon: Package,         adminOnly: true  },
-    { name: "Políticas",         href: "/policies",     icon: Shield,          adminOnly: false },
-    { name: "Auditoría",         href: "/audit",        icon: ClipboardList,   adminOnly: false },
-    { name: "Canales",           href: "/channels",     icon: Radio,           adminOnly: false },
-    { name: "Fronts",            href: "/fronts",       icon: Globe,           adminOnly: false },
-    { name: "Configuraciones",   href: "/settings",     icon: Settings,        adminOnly: false },
+  const allMenuItems: MenuItem[] = [
+    { name: "Dashboard",         href: "/dashboard",     icon: LayoutDashboard, moduleKey: "dashboard" },
+    { name: "Agentes",           href: "/agents",        icon: Bot,             moduleKey: "agents" },
+    { name: "Flujos",            href: "/flows",         icon: GitBranch,       moduleKey: "flows" },
+    { name: "Herramientas",      href: "/tools",         icon: Wrench,          moduleKey: "tools" },
+    { name: "Integraciones",     href: "/integrations",  icon: Plug,            moduleKey: "integrations" },
+    { name: "Conversaciones",    href: "/conversations", icon: MessageSquare,   moduleKey: "conversations" },
+    { name: "Leads",             href: "/leads",         icon: Target,          moduleKey: "leads" },
+    { name: "Stock / Productos", href: "/stock",         icon: Package,         moduleKey: "stock" },
+    { name: "Políticas",         href: "/policies",      icon: Shield,          moduleKey: "policies" },
+    { name: "Auditoría",         href: "/audit",         icon: ClipboardList,   moduleKey: "audit" },
+    { name: "Canales",           href: "/channels",      icon: Radio,           moduleKey: "channels" },
+    { name: "Fronts",            href: "/fronts",        icon: Globe,           moduleKey: "fronts" },
+    { name: "Configuraciones",   href: "/settings",      icon: Settings,        moduleKey: "settings" },
   ];
 
-  const menuItems = allMenuItems.filter(
-    (item) => !item.adminOnly || user?.role === "admin"
-  );
+  // Add sysadmin link for root users
+  if (isRoot) {
+    allMenuItems.unshift({
+      name: "SysAdmin",
+      href: "/sysadmin",
+      icon: ShieldAlert,
+      moduleKey: "sysadmin",
+    });
+  }
+
+  const menuItems = allMenuItems.filter((item) => {
+    if (item.moduleKey === "sysadmin") return isRoot;
+    return canAccessModule(item.moduleKey);
+  });
 
   const isActive = (href: string) => {
     return pathname === href || pathname.startsWith(href + "/");
@@ -57,6 +80,8 @@ export default function Sidebar() {
     logout();
     router.push("/");
   };
+
+  const roleConfig = ROLE_CONFIG[role] ?? ROLE_CONFIG.company_user;
 
   return (
     <>
@@ -136,9 +161,14 @@ export default function Sidebar() {
         {/* User Section */}
         <div className="border-t border-slate-700 p-4 space-y-2 shrink-0">
           <div className="px-4 py-2">
-            <p className="text-sm font-medium text-white truncate">
-              {user?.name || "Usuario"}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-white truncate">
+                {user?.name || "Usuario"}
+              </p>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${roleConfig.color} ${roleConfig.bg} border ${roleConfig.border}`}>
+                {roleConfig.label}
+              </span>
+            </div>
             <p className="text-xs text-slate-400 truncate">
               {user?.email}
             </p>

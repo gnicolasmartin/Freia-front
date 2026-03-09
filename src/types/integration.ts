@@ -18,6 +18,7 @@ export interface FieldMapping {
 
 export interface Integration {
   id: string;
+  companyId?: string;
   name: string;
   description?: string;
   type: IntegrationType;

@@ -21,6 +21,27 @@ import {
 } from "@/lib/whatsapp-webhook";
 import { enqueue } from "@/lib/webhook-event-queue";
 
+// ─── Deduplication — prevent Meta webhook retries from creating duplicates ───
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __freiaSeenMessageIds: Set<string> | undefined;
+}
+
+const MAX_SEEN_IDS = 500;
+
+function isDuplicate(messageId: string): boolean {
+  globalThis.__freiaSeenMessageIds ??= new Set();
+  if (globalThis.__freiaSeenMessageIds.has(messageId)) return true;
+  globalThis.__freiaSeenMessageIds.add(messageId);
+  // Prevent memory leak — trim when set gets too large
+  if (globalThis.__freiaSeenMessageIds.size > MAX_SEEN_IDS) {
+    const entries = [...globalThis.__freiaSeenMessageIds];
+    globalThis.__freiaSeenMessageIds = new Set(entries.slice(-250));
+  }
+  return false;
+}
+
 // ─── GET — Webhook verification handshake ───────────────────────────────────
 
 export async function GET(request: NextRequest): Promise<Response> {
@@ -98,14 +119,22 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Normalize to internal channel events
   const events = parseWhatsAppPayload(payload);
 
-  // Enqueue each event
+  // Enqueue each event (skip duplicates from Meta retries)
+  let enqueued = 0;
   for (const event of events) {
+    // Use WhatsApp messageId for dedup on message events, internal id for others
+    const dedupeKey = event.type === "channel.message.received" ? event.messageId : event.id;
+    if (isDuplicate(dedupeKey)) {
+      console.info(`[WhatsApp Webhook] Skipping duplicate event: ${dedupeKey.slice(0, 12)}`);
+      continue;
+    }
     enqueue(event);
+    enqueued++;
   }
 
-  if (events.length > 0) {
+  if (enqueued > 0) {
     console.info(
-      `[WhatsApp Webhook] Enqueued ${events.length} event(s):`,
+      `[WhatsApp Webhook] Enqueued ${enqueued} event(s):`,
       events.map((e) => `${e.type}(${e.id.slice(0, 8)})`).join(", ")
     );
   }

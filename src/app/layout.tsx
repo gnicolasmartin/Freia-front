@@ -21,6 +21,10 @@ import { WhatsAppIdentityProvider } from "@/providers/WhatsAppIdentityProvider";
 import { BusinessHoursProvider } from "@/providers/BusinessHoursProvider";
 import { RoutingProvider } from "@/providers/RoutingProvider";
 import { WhatsAppAuditProvider } from "@/providers/WhatsAppAuditProvider";
+import { CompanyProvider } from "@/providers/CompanyProvider";
+import { UserManagementProvider } from "@/providers/UserManagementProvider";
+import { ProfileProvider } from "@/providers/ProfileProvider";
+import { MessageProcessorProvider } from "@/providers/MessageProcessorProvider";
 import { DemoSeedGate } from "@/components/DemoSeedGate";
 import "./globals.css";
 
@@ -57,6 +61,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen`}
       >
         <DemoSeedGate>
+        <CompanyProvider>
+        <UserManagementProvider>
+        <ProfileProvider>
         <AuthProvider>
           <LLMConfigProvider>
           <ChannelsProvider>
@@ -78,7 +85,9 @@ export default function RootLayout({
                     <ConversationsProvider>
                     <ProductsProvider>
                     <FrontsProvider>
+                    <MessageProcessorProvider>
                       {children}
+                    </MessageProcessorProvider>
                     </FrontsProvider>
                     </ProductsProvider>
                     </ConversationsProvider>
@@ -100,6 +109,9 @@ export default function RootLayout({
           </ChannelsProvider>
           </LLMConfigProvider>
         </AuthProvider>
+        </ProfileProvider>
+        </UserManagementProvider>
+        </CompanyProvider>
         </DemoSeedGate>
       </body>
     </html>

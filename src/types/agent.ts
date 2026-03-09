@@ -51,6 +51,9 @@ export interface Agent {
   /** When true, agent may send business-initiated messages (templates required) */
   whatsappOutbound?: boolean;
 
+  // Multi-tenant
+  companyId?: string;
+
   // Metadata
   createdAt: string;
   updatedAt: string;

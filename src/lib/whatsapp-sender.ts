@@ -105,6 +105,23 @@ function isRetryableStatus(httpStatus: number): boolean {
   return httpStatus === 429 || httpStatus >= 500;
 }
 
+// ─── Phone number normalization ──────────────────────────────────────────────
+
+/**
+ * Normalizes phone numbers for the WhatsApp Cloud API.
+ * Argentine mobile numbers arrive from webhooks as 549XXXXXXXXXX (with the 9)
+ * but the Cloud API expects 54XXXXXXXXXX (without the 9) for sending.
+ */
+function normalizePhoneForSend(phone: string): string {
+  // Strip any non-digit characters
+  const digits = phone.replace(/\D/g, "");
+  // Argentina: 549 + 10 digits → 54 + 10 digits (remove the mobile 9)
+  if (/^549\d{10}$/.test(digits)) {
+    return "54" + digits.slice(3);
+  }
+  return digits;
+}
+
 // ─── Single send ──────────────────────────────────────────────────────────────
 
 /**
@@ -117,6 +134,7 @@ export async function sendWhatsAppText(
   phoneNumberId: string,
   accessToken: string
 ): Promise<{ messageId: string }> {
+  const normalizedTo = normalizePhoneForSend(to);
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
 
   let response: Response;
@@ -129,7 +147,7 @@ export async function sendWhatsAppText(
       },
       body: JSON.stringify({
         messaging_product: "whatsapp",
-        to,
+        to: normalizedTo,
         type: "text",
         text: { body: text },
       }),
@@ -255,6 +273,165 @@ export async function sendWhatsAppTextWithRetry(
     lastError?.httpStatus,
     lastError?.waErrorCode
   );
+}
+
+// ─── Interactive messaging (buttons / lists) ─────────────────────────────────
+
+export interface InteractiveButton {
+  id: string;
+  title: string; // max 20 chars
+}
+
+export interface InteractiveListRow {
+  id: string;
+  title: string; // max 24 chars
+  description?: string; // max 72 chars
+}
+
+/**
+ * Sends an interactive button message (max 3 buttons) via the WhatsApp Cloud API.
+ */
+export async function sendWhatsAppButtons(
+  to: string,
+  bodyText: string,
+  buttons: InteractiveButton[],
+  phoneNumberId: string,
+  accessToken: string
+): Promise<{ messageId: string }> {
+  if (!consumeToken(phoneNumberId)) {
+    throw new WhatsAppSendError("Rate limit exceeded — token bucket empty", "rate_limited", 0);
+  }
+
+  const normalizedTo = normalizePhoneForSend(to);
+  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: normalizedTo,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: bodyText },
+          action: {
+            buttons: buttons.slice(0, 3).map((b) => ({
+              type: "reply",
+              reply: { id: b.id, title: b.title.slice(0, 20) },
+            })),
+          },
+        },
+      }),
+    });
+  } catch (err) {
+    throw new WhatsAppSendError(
+      `Network error: ${err instanceof Error ? err.message : "unknown"}`,
+      "network_error",
+      1
+    );
+  }
+
+  if (!response.ok) {
+    let errorBody: WAErrorResponse | null = null;
+    try { errorBody = (await response.json()) as WAErrorResponse; } catch { /* ignore */ }
+    throw new WhatsAppSendError(
+      errorBody?.error?.message ?? `HTTP ${response.status}`,
+      response.status === 429 ? "rate_limited" : "api_error",
+      1,
+      response.status,
+      errorBody?.error?.code
+    );
+  }
+
+  const body = (await response.json()) as WAMessageResponse;
+  const messageId = body.messages?.[0]?.id;
+  if (!messageId) {
+    throw new WhatsAppSendError("No message ID in API response", "api_error", 1, response.status);
+  }
+  return { messageId };
+}
+
+/**
+ * Sends an interactive list message via the WhatsApp Cloud API.
+ */
+export async function sendWhatsAppList(
+  to: string,
+  bodyText: string,
+  buttonTitle: string,
+  rows: InteractiveListRow[],
+  phoneNumberId: string,
+  accessToken: string
+): Promise<{ messageId: string }> {
+  if (!consumeToken(phoneNumberId)) {
+    throw new WhatsAppSendError("Rate limit exceeded — token bucket empty", "rate_limited", 0);
+  }
+
+  const normalizedTo = normalizePhoneForSend(to);
+  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: normalizedTo,
+        type: "interactive",
+        interactive: {
+          type: "list",
+          body: { text: bodyText },
+          action: {
+            button: buttonTitle.slice(0, 20),
+            sections: [
+              {
+                title: "Opciones",
+                rows: rows.slice(0, 10).map((r) => ({
+                  id: r.id,
+                  title: r.title.slice(0, 24),
+                  ...(r.description ? { description: r.description.slice(0, 72) } : {}),
+                })),
+              },
+            ],
+          },
+        },
+      }),
+    });
+  } catch (err) {
+    throw new WhatsAppSendError(
+      `Network error: ${err instanceof Error ? err.message : "unknown"}`,
+      "network_error",
+      1
+    );
+  }
+
+  if (!response.ok) {
+    let errorBody: WAErrorResponse | null = null;
+    try { errorBody = (await response.json()) as WAErrorResponse; } catch { /* ignore */ }
+    throw new WhatsAppSendError(
+      errorBody?.error?.message ?? `HTTP ${response.status}`,
+      response.status === 429 ? "rate_limited" : "api_error",
+      1,
+      response.status,
+      errorBody?.error?.code
+    );
+  }
+
+  const body = (await response.json()) as WAMessageResponse;
+  const messageId = body.messages?.[0]?.id;
+  if (!messageId) {
+    throw new WhatsAppSendError("No message ID in API response", "api_error", 1, response.status);
+  }
+  return { messageId };
 }
 
 // ─── Template messaging ───────────────────────────────────────────────────────

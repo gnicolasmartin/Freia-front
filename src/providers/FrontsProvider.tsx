@@ -10,6 +10,7 @@ import {
 import type { Front, FrontFormData, FrontVersion, FrontPage } from "@/types/front";
 import type { FrontAuthConfig } from "@/types/front-auth";
 import { DEFAULT_FRONT_AUTH_CONFIG, DEFAULT_PASSWORD_POLICY } from "@/types/front-auth";
+import { getSessionCompanyId } from "@/lib/get-session-company";
 
 interface FrontsContextType {
   fronts: Front[];
@@ -75,6 +76,7 @@ export function FrontsProvider({ children }: { children: ReactNode }) {
     const now = new Date().toISOString();
     const newFront: Front = {
       id: crypto.randomUUID(),
+      companyId: data.companyId ?? getSessionCompanyId(),
       ...data,
       pages: [],
       authConfig: { ...DEFAULT_FRONT_AUTH_CONFIG },

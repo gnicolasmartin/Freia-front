@@ -1,16 +1,12 @@
 /**
  * /api/channels/whatsapp/send
  *
- * POST — Send a WhatsApp text message via the Cloud API.
+ * POST — Send a WhatsApp message via the Cloud API.
  *
- * Request body:
- *   {
- *     to: string          — recipient phone number (E.164 format, e.g. "+5491112345678")
- *     text: string        — message body
- *     phoneNumberId?: string  — override env var (dev / testing only)
- *     accessToken?: string    — override env var (dev / testing only)
- *     maxRetries?: number     — default 3
- *   }
+ * Supports three modes:
+ *   1. Text message:        { to, text }
+ *   2. Button interactive:  { to, text, interactive: { type: "buttons", buttons: [{id, title}] } }
+ *   3. List interactive:    { to, text, interactive: { type: "list", buttonTitle, rows: [{id, title, description?}] } }
  *
  * Credentials resolution:
  *   1. WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN env vars (production)
@@ -18,19 +14,16 @@
  *
  * Success response (200):
  *   { messageId: string, status: "sent", attempts: number }
- *
- * Error responses:
- *   400 { error: "..." }               — missing or malformed request
- *   401 { error: "..." }               — no credentials available
- *   429 { error: "...", code: "rate_limited" }
- *   5xx { error: "...", code, attempts, httpStatus }
  */
 
 import { type NextRequest, NextResponse } from "next/server";
 import {
   sendWhatsAppTextWithRetry,
+  sendWhatsAppButtons,
+  sendWhatsAppList,
   WhatsAppSendError,
 } from "@/lib/whatsapp-sender";
+import type { InteractiveButton, InteractiveListRow } from "@/lib/whatsapp-sender";
 
 interface SendRequestBody {
   to: string;
@@ -38,6 +31,12 @@ interface SendRequestBody {
   phoneNumberId?: string;
   accessToken?: string;
   maxRetries?: number;
+  interactive?: {
+    type: "buttons" | "list";
+    buttons?: InteractiveButton[];
+    buttonTitle?: string;
+    rows?: InteractiveListRow[];
+  };
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -81,22 +80,31 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   try {
-    const result = await sendWhatsAppTextWithRetry(
-      to,
-      text,
-      phoneNumberId,
-      accessToken,
-      maxRetries
-    );
+    let messageId: string;
+    let attempts = 1;
+
+    if (body.interactive?.type === "buttons" && body.interactive.buttons?.length) {
+      const res = await sendWhatsAppButtons(to, text, body.interactive.buttons, phoneNumberId, accessToken);
+      messageId = res.messageId;
+    } else if (body.interactive?.type === "list" && body.interactive.rows?.length) {
+      const res = await sendWhatsAppList(
+        to, text, body.interactive.buttonTitle ?? "Ver opciones", body.interactive.rows, phoneNumberId, accessToken
+      );
+      messageId = res.messageId;
+    } else {
+      const res = await sendWhatsAppTextWithRetry(to, text, phoneNumberId, accessToken, maxRetries);
+      messageId = res.messageId;
+      attempts = res.attempts;
+    }
 
     console.info(
-      `[WhatsApp Send] Sent to ${to}: ${result.messageId} (${result.attempts} attempt(s))`
+      `[WhatsApp Send] Sent to ${to}: ${messageId} (${attempts} attempt(s))`
     );
 
     return NextResponse.json({
-      messageId: result.messageId,
+      messageId,
       status: "sent",
-      attempts: result.attempts,
+      attempts,
     });
   } catch (err) {
     if (err instanceof WhatsAppSendError) {

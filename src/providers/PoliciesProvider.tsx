@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Policy, PolicyFormData, PolicyVersion } from "@/types/policy";
+import { getSessionCompanyId } from "@/lib/get-session-company";
 
 interface PoliciesContextType {
   policies: Policy[];
@@ -68,6 +69,7 @@ export function PoliciesProvider({ children }: { children: ReactNode }) {
     const now = new Date().toISOString();
     const newPolicy: Policy = {
       id: crypto.randomUUID(),
+      companyId: data.companyId ?? getSessionCompanyId(),
       ...data,
       createdAt: now,
       updatedAt: now,

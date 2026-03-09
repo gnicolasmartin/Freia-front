@@ -10,6 +10,7 @@ import {
 import type { Integration, IntegrationFormData, WebhookSyncLog, RetryQueueEntry, DLQEntry, AdminNotification } from "@/types/integration";
 import { DEFAULT_CAPABILITIES_BY_TYPE, processWebhookPayload } from "@/types/integration";
 import { encryptCredential } from "@/lib/crypto-utils";
+import { getSessionCompanyId } from "@/lib/get-session-company";
 
 interface IntegrationsContextType {
   integrations: Integration[];
@@ -137,6 +138,7 @@ export function IntegrationsProvider({ children }: { children: ReactNode }) {
     const newIntegration: Integration = {
       id: crypto.randomUUID(),
       ...data,
+      companyId: data.companyId ?? getSessionCompanyId(),
       credentials: encryptedCredentials,
       supportedCapabilities,
       createdAt: now,

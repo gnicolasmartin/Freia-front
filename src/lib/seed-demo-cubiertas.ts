@@ -13,7 +13,8 @@ import type { Agent } from "@/types/agent";
 import type { Front, FrontVersion, FrontPage, FrontSection } from "@/types/front";
 import { DEFAULT_FRONT_AUTH_CONFIG } from "@/types/front-auth";
 
-const SEED_KEY = "freia_seed_cubiertas_v15";
+const SEED_KEY = "freia_seed_cubiertas_v16";
+const COMPANY_ID = "company_cubiertas";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -704,6 +705,7 @@ const edges: FlowEdge[] = [
 
 const FLOW: Flow = {
   id: flowId,
+  companyId: COMPANY_ID,
   name: "Consulta de Stock — Cubiertas",
   description: "Flujo de atención para consulta de stock y precios de cubiertas. El agente saluda, pregunta qué cubierta busca el cliente, consulta el catálogo y responde con precio y disponibilidad.",
   status: "active",
@@ -725,6 +727,7 @@ const agentId = uid();
 
 const AGENT: Agent = {
   id: agentId,
+  companyId: COMPANY_ID,
   name: "Asistente Cubiertas Express",
   description: "Agente de atención por web chat para consulta de stock y precios de cubiertas. Entiende lenguaje coloquial argentino y responde rápido con info de producto.",
   status: "active",
@@ -855,6 +858,7 @@ const frontVersion: FrontVersion = {
 
 const FRONT: Front = {
   id: frontId,
+  companyId: COMPANY_ID,
   name: "Cubiertas Express",
   description: "Front de gestión de stock y consulta de cubiertas para Cubiertas Express.",
   status: "published",
@@ -888,6 +892,7 @@ const OLD_SEED_KEYS = [
   "freia_seed_cubiertas_v12",
   "freia_seed_cubiertas_v13",
   "freia_seed_cubiertas_v14",
+  "freia_seed_cubiertas_v15",
 ];
 
 export function seedDemoCubiertas(): boolean {
@@ -897,7 +902,7 @@ export function seedDemoCubiertas(): boolean {
   for (const k of OLD_SEED_KEYS) localStorage.removeItem(k);
 
   // Invalidate other demo's sentinel so it can re-seed when switching back
-  localStorage.removeItem("freia_seed_importador_v2");
+  localStorage.removeItem("freia_seed_importador_v3");
 
   // ALWAYS clean other demo's data (runs even if already seeded)
   let cleaned = false;
@@ -928,7 +933,7 @@ export function seedDemoCubiertas(): boolean {
     if (cleaned) console.log("[seed-demo] cleaned other demo data");
     return cleaned;
   }
-  console.log("[seed-demo] seeding v15 data...");
+  console.log("[seed-demo] seeding v16 data...");
 
   try {
     // Upsert: remove items matching dedup key, then append fresh ones
@@ -970,16 +975,16 @@ export function seedDemoCubiertas(): boolean {
       ));
     } catch { /* ignore */ }
 
-    // Seed all data
+    // Seed all data (stamp companyId on products)
     upsert("freia_variant_types", VARIANT_TYPES, "key");
     upsert("freia_discounts", DISCOUNTS, "name");
-    upsert("freia_products", PRODUCTS, "sku");
+    upsert("freia_products", PRODUCTS.map((p) => ({ ...p, companyId: COMPANY_ID })), "sku");
     upsert("freia_flows", [FLOW], "name");
     upsert("freia_agents", [AGENT], "name");
     upsert("freia_fronts", [FRONT], "name");
 
     localStorage.setItem(SEED_KEY, "1");
-    console.log("[seed-demo] v15 done. flows:", JSON.parse(localStorage.getItem("freia_flows") ?? "[]").length, "agents:", JSON.parse(localStorage.getItem("freia_agents") ?? "[]").length, "fronts:", JSON.parse(localStorage.getItem("freia_fronts") ?? "[]").length);
+    console.log("[seed-demo] v16 done. flows:", JSON.parse(localStorage.getItem("freia_flows") ?? "[]").length, "agents:", JSON.parse(localStorage.getItem("freia_agents") ?? "[]").length, "fronts:", JSON.parse(localStorage.getItem("freia_fronts") ?? "[]").length);
     return true;
   } catch (err) {
     console.error("[seed-demo] error:", err);
