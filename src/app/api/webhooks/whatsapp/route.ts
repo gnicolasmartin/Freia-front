@@ -20,29 +20,10 @@ import {
   parseWhatsAppPayload,
   extractPhoneNumberId,
 } from "@/lib/whatsapp-webhook";
-import { enqueue } from "@/lib/webhook-event-queue";
 import { lookupByPhoneNumberId } from "@/lib/credential-lookup";
 
-// ─── Deduplication — prevent Meta webhook retries from creating duplicates ───
-
-declare global {
-  // eslint-disable-next-line no-var
-  var __freiaSeenMessageIds: Set<string> | undefined;
-}
-
-const MAX_SEEN_IDS = 500;
-
-function isDuplicate(messageId: string): boolean {
-  globalThis.__freiaSeenMessageIds ??= new Set();
-  if (globalThis.__freiaSeenMessageIds.has(messageId)) return true;
-  globalThis.__freiaSeenMessageIds.add(messageId);
-  // Prevent memory leak — trim when set gets too large
-  if (globalThis.__freiaSeenMessageIds.size > MAX_SEEN_IDS) {
-    const entries = [...globalThis.__freiaSeenMessageIds];
-    globalThis.__freiaSeenMessageIds = new Set(entries.slice(-250));
-  }
-  return false;
-}
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
 
 // ─── GET — Webhook verification handshake ───────────────────────────────────
 
@@ -136,8 +117,8 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Normalize to internal channel events
   const events = parseWhatsAppPayload(payload);
 
-  // Enqueue each event (skip duplicates from Meta retries)
-  let enqueued = 0;
+  // Send each event to the backend for persistent storage (dedup handled there)
+  let ingested = 0;
   for (const event of events) {
     // Attach companyId to the event for downstream processing
     if (companyId) {
@@ -145,19 +126,27 @@ export async function POST(request: NextRequest): Promise<Response> {
       (event as any).companyId = companyId;
     }
 
-    // Use WhatsApp messageId for dedup on message events, internal id for others
-    const dedupeKey = event.type === "channel.message.received" ? event.messageId : event.id;
-    if (isDuplicate(dedupeKey)) {
-      console.info(`[WhatsApp Webhook] Skipping duplicate event: ${dedupeKey.slice(0, 12)}`);
-      continue;
+    try {
+      const res = await fetch(`${API_URL}/events/ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(event),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as { stored: boolean };
+        if (data.stored) ingested++;
+      } else {
+        console.warn(`[WhatsApp Webhook] Backend ingest failed: ${res.status}`);
+      }
+    } catch (err) {
+      console.error("[WhatsApp Webhook] Failed to send event to backend:", err);
     }
-    enqueue(event);
-    enqueued++;
   }
 
-  if (enqueued > 0) {
+  if (ingested > 0) {
     console.info(
-      `[WhatsApp Webhook] Enqueued ${enqueued} event(s) for company=${companyId ?? "unknown"}:`,
+      `[WhatsApp Webhook] Ingested ${ingested} event(s) for company=${companyId ?? "unknown"}:`,
       events.map((e) => `${e.type}(${e.id.slice(0, 8)})`).join(", ")
     );
   }

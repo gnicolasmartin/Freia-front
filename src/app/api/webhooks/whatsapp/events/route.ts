@@ -1,26 +1,38 @@
 /**
  * /api/webhooks/whatsapp/events
  *
- * GET — Returns all pending events from the in-memory queue and drains them.
+ * GET — Returns all pending events from the backend persistent queue.
  *
  * Used by the Freia frontend to poll for new incoming channel events.
- * In production this would be replaced by a WebSocket or server-sent events
- * stream backed by a durable message broker.
+ * Events are fetched from the backend PostgreSQL database and marked
+ * as processed atomically.
  */
 
 import { NextResponse } from "next/server";
-import { drain, depth } from "@/lib/webhook-event-queue";
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
 
 export async function GET(): Promise<Response> {
-  const queued = drain();
+  try {
+    const res = await fetch(`${API_URL}/events/pending`, {
+      cache: "no-store",
+    });
 
-  return NextResponse.json({
-    count: queued.length,
-    remaining: depth(), // should be 0 after drain, but good for diagnostics
-    events: queued.map((q) => ({
-      ...q.event,
-      // Strip raw payload to avoid leaking sensitive data to the frontend
-      raw: undefined,
-    })),
-  });
+    if (!res.ok) {
+      console.warn(`[WhatsApp Events] Backend returned ${res.status}`);
+      return NextResponse.json({ count: 0, remaining: 0, events: [] });
+    }
+
+    const data = (await res.json()) as { count: number; events: unknown[] };
+
+    return NextResponse.json({
+      count: data.count,
+      remaining: 0,
+      events: data.events,
+    });
+  } catch (err) {
+    console.warn("[WhatsApp Events] Failed to fetch from backend:", err);
+    return NextResponse.json({ count: 0, remaining: 0, events: [] });
+  }
 }
