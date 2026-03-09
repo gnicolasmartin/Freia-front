@@ -81,7 +81,7 @@ function FrontErrorPage({
     "not-found": {
       icon: Globe,
       title: "Sitio no encontrado",
-      description: `No existe un front configurado para "${subdomain}.freia.app".`,
+      description: `No existe un front configurado para "${subdomain}.freiatech.com".`,
       color: "text-slate-400",
     },
     "not-published": {

@@ -48,7 +48,7 @@ export default function FrontsPage() {
       setValidationErrors(errors);
       return;
     }
-    if (!confirm(`¿Publicar "${front.name}" en ${front.subdomain}.freia.app?`)) return;
+    if (!confirm(`¿Publicar "${front.name}" en ${front.subdomain}.freiatech.com?`)) return;
     const version = publishFront(front.id, performedBy);
     if (version) {
       addEntry({
@@ -247,7 +247,7 @@ export default function FrontsPage() {
             <div className="px-6 py-4">
               <p className="text-sm text-slate-400 mb-4">
                 {currentHistoryFront.name} &middot;{" "}
-                <span className="font-mono">{currentHistoryFront.subdomain}.freia.app</span>
+                <span className="font-mono">{currentHistoryFront.subdomain}.freiatech.com</span>
               </p>
 
               {currentHistoryFront.versions.length === 0 ? (
@@ -357,7 +357,7 @@ export default function FrontsPage() {
                                   {version.snapshot.description && (
                                     <p><span className="text-slate-500">Descripción:</span> {version.snapshot.description}</p>
                                   )}
-                                  <p><span className="text-slate-500">Subdominio:</span> <span className="font-mono">{version.snapshot.subdomain}.freia.app</span></p>
+                                  <p><span className="text-slate-500">Subdominio:</span> <span className="font-mono">{version.snapshot.subdomain}.freiatech.com</span></p>
                                   {version.snapshot.branding.primaryColor && (
                                     <div className="flex items-center gap-1.5">
                                       <span className="text-slate-500">Color primario:</span>

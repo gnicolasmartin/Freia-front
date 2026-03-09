@@ -78,7 +78,7 @@ export default function PrivacyPolicy() {
           <h2 className="text-xl font-semibold text-white mb-2">8. Contacto</h2>
           <p>
             Para consultas sobre esta política de privacidad o para ejercer sus derechos,
-            contactarse a: <span className="text-orange-400">privacidad@freia.app</span>
+            contactarse a: <span className="text-orange-400">privacidad@freiatech.com</span>
           </p>
         </div>
       </section>

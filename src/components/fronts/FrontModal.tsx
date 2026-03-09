@@ -211,7 +211,7 @@ export default function FrontModal({ isOpen, onClose, editingFront }: FrontModal
                     placeholder="mi-empresa"
                     className="flex-1 rounded-lg border border-slate-600 bg-slate-700/50 px-3 py-2 text-white font-mono placeholder-slate-500 focus:border-[#dd7430] focus:outline-none focus:ring-1 focus:ring-[#dd7430]"
                   />
-                  <span className="text-slate-400 text-sm whitespace-nowrap">.freia.app</span>
+                  <span className="text-slate-400 text-sm whitespace-nowrap">.freiatech.com</span>
                 </div>
                 {submitAttempted && subdomainError && (
                   <p className="mt-1 text-xs text-red-400 flex items-center gap-1">

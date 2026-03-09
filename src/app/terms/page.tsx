@@ -86,7 +86,7 @@ export default function TermsOfService() {
           <h2 className="text-xl font-semibold text-white mb-2">9. Contacto</h2>
           <p>
             Para consultas sobre estos términos, contactarse a:{" "}
-            <span className="text-orange-400">legal@freia.app</span>
+            <span className="text-orange-400">legal@freiatech.com</span>
           </p>
         </div>
       </section>

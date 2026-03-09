@@ -129,16 +129,16 @@ export default function FrontCard({ front, onEdit, onDelete, onPublish, onUnpubl
           <span className="text-slate-500">Subdominio</span>
           {isDraft ? (
             <span className="text-slate-400 font-mono text-xs">
-              {front.subdomain}.freia.app
+              {front.subdomain}.freiatech.com
             </span>
           ) : (
             <a
-              href={`https://${front.subdomain}.freia.app`}
+              href={`https://${front.subdomain}.freiatech.com`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[#dd7430] hover:text-orange-400 font-mono text-xs transition-colors"
             >
-              {front.subdomain}.freia.app
+              {front.subdomain}.freiatech.com
             </a>
           )}
         </div>
