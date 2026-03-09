@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, FormEvent, ChangeEvent, useEffect } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { Eye, EyeOff, LogIn, AlertCircle } from "lucide-react";
@@ -76,12 +77,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md space-y-8">
         {/* Logo/Brand Section */}
         <div className="flex flex-col items-center space-y-4">
-          <div
-            className="flex size-14 items-center justify-center rounded-lg bg-gradient-to-br from-[#dd7430] to-orange-600 shadow-lg"
-            aria-label="Freia logo"
-          >
-            <span className="text-2xl font-bold text-white">F</span>
-          </div>
+          <Image src="/freia-logo.png" alt="Freia logo" width={56} height={56} className="rounded-lg shadow-lg" />
           <div className="text-center">
             <h1 className="text-3xl font-bold tracking-tight text-white">
               Freia

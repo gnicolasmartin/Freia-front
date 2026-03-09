@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
@@ -88,9 +89,7 @@ export default function Sidebar() {
       {/* Mobile Menu Button */}
       <div className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between bg-slate-900 border-b border-slate-700 px-4 py-3 lg:hidden">
         <div className="flex items-center gap-2">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#dd7430] to-orange-600">
-            <span className="text-sm font-bold text-white">F</span>
-          </div>
+          <Image src="/freia-logo.png" alt="Freia" width={32} height={32} className="rounded-lg" />
           <span className="font-bold text-white text-sm">Freia</span>
         </div>
         <button
@@ -110,9 +109,7 @@ export default function Sidebar() {
       >
         {/* Logo */}
         <div className="hidden lg:flex items-center gap-3 p-6 border-b border-slate-700 shrink-0">
-          <div className="flex size-10 items-center justify-center rounded-lg bg-gradient-to-br from-[#dd7430] to-orange-600">
-            <span className="text-lg font-bold text-white">F</span>
-          </div>
+          <Image src="/freia-logo.png" alt="Freia" width={40} height={40} className="rounded-lg" />
           <div>
             <h1 className="font-bold text-white text-lg">Freia</h1>
             <p className="text-xs text-slate-400">AI Automation</p>
@@ -121,9 +118,7 @@ export default function Sidebar() {
 
         {/* Mobile Logo */}
         <div className="flex lg:hidden items-center gap-3 p-4 border-b border-slate-700 mt-12 shrink-0">
-          <div className="flex size-10 items-center justify-center rounded-lg bg-gradient-to-br from-[#dd7430] to-orange-600">
-            <span className="text-lg font-bold text-white">F</span>
-          </div>
+          <Image src="/freia-logo.png" alt="Freia" width={40} height={40} className="rounded-lg" />
           <div>
             <h1 className="font-bold text-white">Freia</h1>
             <p className="text-xs text-slate-400">AI Automation</p>

@@ -42,6 +42,10 @@ export const metadata: Metadata = {
   title: "Freia - AI Agent Automation Platform",
   description: "Freia: Intelligent AI agent automation platform for enterprise automation",
   keywords: ["AI", "automation", "agents", "enterprise", "workflow"],
+  icons: {
+    icon: "/icon.png",
+    apple: "/apple-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
