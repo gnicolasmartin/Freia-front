@@ -24,7 +24,7 @@ import type {
 } from "@/types/calendar";
 import { DEFAULT_SCHEDULE } from "@/types/calendar";
 
-const SEED_KEY = "freia_seed_rincon_v11";
+const SEED_KEY = "freia_seed_rincon_v12";
 const COMPANY_ID = "company_rincon";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -272,56 +272,50 @@ const nodes: FlowNode[] = [
       ],
     },
   },
-  // ── Rama: Disponibilidad (calendar_check con rangos) ──
+  // ── Rama: Disponibilidad ──
   {
     id: "n_check_calendar",
-    type: "toolcall",
+    type: "message",
     position: { x: 100, y: 700 },
     data: {
-      label: "Consultar disponibilidad",
-      tool: "calendar_check",
-      parameterMapping: [
-        { id: uid(), paramName: "calendarId", variableName: "" },
-        { id: uid(), paramName: "startDate", variableName: "" },
-        { id: uid(), paramName: "endDate", variableName: "" },
-        { id: uid(), paramName: "resourceId", variableName: "" },
-      ],
+      label: "Disponibilidad",
+      message:
+        "📅 Te cuento la disponibilidad general:\n\n" +
+        "• *El Rincón de Mi Mundo* — Disponible la mayoría de fines de semana. Estadía mínima: 2 noches.\n" +
+        "• *El Rincón II* — Tiene buena disponibilidad entre semana y algunos fines de semana.\n" +
+        "• *La Amorosa* — Disponible para eventos y fines de semana largo.\n\n" +
+        "Para confirmar fechas exactas, escribinos por WhatsApp al *+54 9 11 XXXX-XXXX* o decime qué fechas te interesan y lo verifico.",
     },
   },
   // ── Rama: Búsqueda por especificaciones ──
   {
     id: "n_search_resources",
-    type: "toolcall",
+    type: "message",
     position: { x: 400, y: 700 },
     data: {
       label: "Buscar quinta",
-      tool: "search_resources",
-      parameterMapping: [
-        { id: uid(), paramName: "calendarId", variableName: "" },
-        { id: uid(), paramName: "query", variableName: "consulta_cliente" },
-        { id: uid(), paramName: "minCapacity", variableName: "" },
-        { id: uid(), paramName: "startDate", variableName: "" },
-        { id: uid(), paramName: "endDate", variableName: "" },
-        { id: uid(), paramName: "requiredFeatures", variableName: "" },
-      ],
+      message:
+        "🏡 Tenemos estas opciones:\n\n" +
+        "• *El Rincón de Mi Mundo* — Hasta 15 personas. Pileta grande, parque con parrilla, DirecTV, WiFi, vajilla completa.\n" +
+        "• *El Rincón II* — Hasta 12 personas. Pileta, quincho cerrado, parrilla, WiFi.\n" +
+        "• *La Amorosa* — Hasta 20 personas. Ideal para eventos. Pileta, salón, parque amplio.\n\n" +
+        "¿Te interesa alguna en particular? Puedo darte más detalles o consultar disponibilidad.",
     },
   },
   // ── Rama: Reservar/visita ──
   {
     id: "n_reservar",
-    type: "toolcall",
+    type: "message",
     position: { x: 700, y: 700 },
     data: {
-      label: "Crear reserva",
-      tool: "create_booking",
-      parameterMapping: [
-        { id: uid(), paramName: "calendarId", variableName: "" },
-        { id: uid(), paramName: "resourceId", variableName: "" },
-        { id: uid(), paramName: "date", variableName: "" },
-        { id: uid(), paramName: "endDate", variableName: "" },
-        { id: uid(), paramName: "contactName", variableName: "" },
-        { id: uid(), paramName: "notes", variableName: "" },
-      ],
+      label: "Info reserva",
+      message:
+        "¡Genial que quieras reservar! 🎉\n\n" +
+        "Para coordinar tu reserva necesito:\n" +
+        "1️⃣ ¿Qué quinta te interesa? (El Rincón de Mi Mundo, El Rincón II o La Amorosa)\n" +
+        "2️⃣ ¿Qué fechas tenés en mente?\n" +
+        "3️⃣ ¿Cuántas personas serían?\n\n" +
+        "También podés coordinar una visita para conocer las quintas antes de reservar. ¡Contame!",
     },
   },
   // ── Info general (default) ──
@@ -342,7 +336,7 @@ const nodes: FlowNode[] = [
     position: { x: 400, y: 920 },
     data: {
       label: "¿Seguimos?",
-      message: "",
+      message: "¿Hay algo más en lo que pueda ayudarte? Podés consultarme sobre disponibilidad, las quintas, o coordinar una reserva. Si no necesitás nada más, escribí \"no\".",
       responseType: "text",
       variable: "consulta_cliente",
       maxRetries: 2,
@@ -376,19 +370,16 @@ const nodes: FlowNode[] = [
   // ── Nodo reservar desde seguir ──
   {
     id: "n_reservar_2",
-    type: "toolcall",
+    type: "message",
     position: { x: 100, y: 1260 },
     data: {
-      label: "Crear reserva (2)",
-      tool: "create_booking",
-      parameterMapping: [
-        { id: uid(), paramName: "calendarId", variableName: "" },
-        { id: uid(), paramName: "resourceId", variableName: "" },
-        { id: uid(), paramName: "date", variableName: "" },
-        { id: uid(), paramName: "endDate", variableName: "" },
-        { id: uid(), paramName: "contactName", variableName: "" },
-        { id: uid(), paramName: "notes", variableName: "" },
-      ],
+      label: "Info reserva (2)",
+      message:
+        "¡Perfecto! Para coordinar tu reserva necesito:\n" +
+        "1️⃣ ¿Qué quinta elegís?\n" +
+        "2️⃣ ¿Qué fechas?\n" +
+        "3️⃣ ¿Cuántas personas?\n\n" +
+        "Contame y lo organizamos.",
     },
   },
   {
