@@ -22,8 +22,36 @@ import {
 } from "@/lib/whatsapp-webhook";
 import { lookupByPhoneNumberId } from "@/lib/credential-lookup";
 
+// Allow up to 55s for cold-start backends (Render free tier sleeps after 15 min)
+export const maxDuration = 55;
+
 const API_URL =
   process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
+
+/** Fetch with timeout + single retry (handles backend cold starts). */
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  timeoutMs = 25_000
+): Promise<globalThis.Response> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (err) {
+      if (attempt === 0) {
+        console.warn(`[WhatsApp Webhook] Backend fetch attempt 1 failed, retrying in 3s...`);
+        await new Promise((r) => setTimeout(r, 3_000));
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw new Error("fetchWithRetry: unreachable");
+}
 
 // ─── GET — Webhook verification handshake ───────────────────────────────────
 
@@ -127,7 +155,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     try {
-      const res = await fetch(`${API_URL}/events/ingest`, {
+      const res = await fetchWithRetry(`${API_URL}/events/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(event),

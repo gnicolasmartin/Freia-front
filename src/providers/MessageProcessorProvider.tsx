@@ -320,6 +320,19 @@ export function MessageProcessorProvider({
     }
   }, [getRawKey, getWACredentials]);
 
+  // ── Backend keep-alive (prevents Render free-tier cold starts) ──────────
+
+  useEffect(() => {
+    // Ping the backend every 4 minutes to keep it warm
+    const KEEP_ALIVE_MS = 4 * 60 * 1000;
+    const ping = () => {
+      fetch("/api/cron/keep-alive").catch(() => {});
+    };
+    ping(); // immediate first ping
+    const keepAliveInterval = setInterval(ping, KEEP_ALIVE_MS);
+    return () => clearInterval(keepAliveInterval);
+  }, []);
+
   // ── Polling interval ─────────────────────────────────────────────────────
 
   useEffect(() => {
