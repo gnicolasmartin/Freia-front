@@ -18,6 +18,7 @@ import {
   ChevronDown,
   MessageSquare,
   ShoppingBag,
+  Mail,
   TrendingUp,
   UserCheck,
   UserX,
@@ -40,16 +41,28 @@ interface FilterState {
   dateTo: string;
 }
 
+interface ToolLog {
+  nodeId: string;
+  tool: string;
+  timestamp: string;
+  request: Record<string, unknown>;
+  response?: Record<string, unknown>;
+  error?: string;
+  durationMs?: number;
+}
+
 interface Lead {
   id: string;
   contactPhone: string;
   contactName: string;
+  contactEmail?: string;
   channel: string;
   status: LeadStatus;
   agentId?: string;
   agentName?: string;
   flowId: string;
   flowName: string;
+  consultationTopic?: string;
   productName?: string;
   productBrand?: string;
   productPrice?: string;
@@ -57,15 +70,7 @@ interface Lead {
   startedAt: string;
   lastActivityAt: string;
   vars: Record<string, unknown>;
-  toolExecutionLogs: Array<{
-    nodeId: string;
-    tool: string;
-    timestamp: string;
-    request: Record<string, unknown>;
-    response?: Record<string, unknown>;
-    error?: string;
-    durationMs?: number;
-  }>;
+  toolExecutionLogs: ToolLog[];
 }
 
 // --- Helpers ---
@@ -174,6 +179,152 @@ function timeSince(iso: string): string {
   return `hace ${diffDays}d`;
 }
 
+// --- Consultation topic derivation ---
+
+const TOOL_TOPIC_LABELS: Record<string, string> = {
+  calendar_check: "Disponibilidad",
+  create_booking: "Reserva",
+  search_resources: "Búsqueda",
+  crm_lookup: "Consulta CRM",
+  send_email: "Email",
+  create_ticket: "Ticket",
+  knowledge_search: "Consulta",
+  apply_discount: "Descuento",
+  cancel_order: "Cancelación",
+  create_refund: "Reembolso",
+};
+
+const BUILTIN_VAR_PREFIXES = ["contact.", "message.", "system.", "lead.", "channel", "product."];
+
+function formatDateCompact(dateStr: string): string {
+  try {
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" });
+  } catch { return dateStr; }
+}
+
+function formatDateRangeCompact(start?: unknown, end?: unknown): string {
+  if (!start) return "";
+  const s = String(start);
+  const e = end ? String(end) : "";
+  if (!e || e === s) return formatDateCompact(s);
+  // Same month+year: "13-16 mar 2026"
+  try {
+    const ds = new Date(s + "T00:00:00");
+    const de = new Date(e + "T00:00:00");
+    if (ds.getMonth() === de.getMonth() && ds.getFullYear() === de.getFullYear()) {
+      return `${ds.getDate()}-${de.getDate()} ${ds.toLocaleDateString("es-AR", { month: "short", year: "numeric" })}`;
+    }
+  } catch { /* fall through */ }
+  return `${formatDateCompact(s)} — ${formatDateCompact(e)}`;
+}
+
+function deriveTopicFromLog(log: ToolLog): string | undefined {
+  const r = log.request ?? {};
+  const resp = log.response as Record<string, unknown> | undefined;
+
+  // Confirmed booking → highest priority
+  if (log.tool === "create_booking" && resp?.status === "confirmed") {
+    const data = resp.data as Record<string, unknown> | undefined;
+    const code = data?.confirmationCode ? ` ${data.confirmationCode}` : "";
+    return `Reserva confirmada${code}`;
+  }
+
+  // Error responses → skip
+  if (resp?.status === "error") return undefined;
+
+  const label = TOOL_TOPIC_LABELS[log.tool] ?? log.tool.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+  // Tool-specific detail extraction
+  if (log.tool === "calendar_check" || log.tool === "create_booking") {
+    const dates = formatDateRangeCompact(r.startDate || r.date, r.endDate);
+    return dates ? `${label} — ${dates}` : label;
+  }
+  if (log.tool === "search_resources") {
+    const q = r.query ? String(r.query).slice(0, 50) : "";
+    return q ? `${label}: ${q}` : label;
+  }
+  if (log.tool === "crm_lookup") {
+    const q = r.query || r.email || r.phone;
+    return q ? `${label}: ${String(q).slice(0, 40)}` : label;
+  }
+  if (log.tool === "send_email") {
+    return r.to ? `${label} a ${String(r.to).slice(0, 30)}` : label;
+  }
+  if (log.tool === "create_ticket") {
+    return r.title ? `${label}: ${String(r.title).slice(0, 40)}` : label;
+  }
+
+  // Generic: use first string param value
+  const firstParam = Object.values(r).find((v) => typeof v === "string" && v.length > 0);
+  return firstParam ? `${label}: ${String(firstParam).slice(0, 40)}` : label;
+}
+
+function deriveConsultationTopic(lead: Lead): string | undefined {
+  // 1. From tool logs (prioritize confirmed bookings, then last meaningful log)
+  const logs = lead.toolExecutionLogs ?? [];
+  let bestTopic: string | undefined;
+  for (const log of logs) {
+    const topic = deriveTopicFromLog(log);
+    if (topic) {
+      bestTopic = topic;
+      // Confirmed booking is the highest priority — stop
+      if (log.tool === "create_booking" && (log.response as Record<string, unknown>)?.status === "confirmed") {
+        return topic;
+      }
+    }
+  }
+  if (bestTopic) return bestTopic;
+
+  // 2. Product name (StockLookup flows)
+  if (lead.productName) {
+    const brand = lead.productBrand ? `${lead.productBrand} ` : "";
+    return `Producto: ${brand}${lead.productName}`;
+  }
+
+  // 3. First non-builtin variable with a meaningful string value
+  for (const [key, val] of Object.entries(lead.vars)) {
+    if (BUILTIN_VAR_PREFIXES.some((p) => key.startsWith(p))) continue;
+    if (typeof val === "string" && val.trim().length > 5) {
+      return val.trim().slice(0, 80);
+    }
+  }
+
+  // 4. First message
+  if (lead.firstMessage) return lead.firstMessage.slice(0, 60);
+
+  return undefined;
+}
+
+// --- Contact extraction from vars ---
+
+const NAME_KEYS = ["nombre", "name", "contactname", "nombre_completo", "full_name", "cliente"];
+const PHONE_KEYS = ["telefono", "phone", "celular", "whatsapp", "tel", "mobile", "contactphone"];
+const EMAIL_KEYS = ["email", "correo", "mail", "e-mail", "contactemail"];
+
+function extractContactFromVars(vars: Record<string, unknown>): { name?: string; phone?: string; email?: string } {
+  const result: { name?: string; phone?: string; email?: string } = {};
+
+  for (const [key, val] of Object.entries(vars)) {
+    if (!val || typeof val !== "string" || !val.trim()) continue;
+    // Skip builtin vars already handled
+    if (key === "contact.phone" || key === "contact.name" || key.startsWith("message.") || key.startsWith("system.")) continue;
+
+    const k = key.toLowerCase().replace(/[._-]/g, "");
+    if (!result.name && NAME_KEYS.some((nk) => k.includes(nk))) {
+      result.name = val.trim();
+    }
+    if (!result.phone && PHONE_KEYS.some((pk) => k.includes(pk))) {
+      result.phone = val.trim();
+    }
+    if (!result.email && EMAIL_KEYS.some((ek) => k.includes(ek))) {
+      result.email = val.trim();
+    }
+  }
+
+  return result;
+}
+
 // --- Main page ---
 
 export default function LeadsPage() {
@@ -209,10 +360,16 @@ export default function LeadsPage() {
           ? agents.find((a) => a.id === conv.agentId)
           : agents.find((a) => a.flowId === conv.flowId);
 
-        return {
+        // Extract contact data from variables (enriches beyond contact.phone/name)
+        const extracted = extractContactFromVars(conv.vars);
+        const contactName = String(conv.vars["contact.name"] ?? "") || extracted.name || "";
+        const contactPhone = String(conv.vars["contact.phone"] ?? "") || extracted.phone || "";
+
+        const lead: Lead = {
           id: conv.id,
-          contactPhone: String(conv.vars["contact.phone"] ?? ""),
-          contactName: String(conv.vars["contact.name"] ?? ""),
+          contactPhone,
+          contactName,
+          contactEmail: extracted.email,
           channel: String(conv.vars["channel"] ?? "whatsapp"),
           status: deriveLeadStatus(
             conv.status,
@@ -240,6 +397,8 @@ export default function LeadsPage() {
           vars: conv.vars,
           toolExecutionLogs: conv.toolExecutionLogs,
         };
+        lead.consultationTopic = deriveConsultationTopic(lead);
+        return lead;
       })
       .sort(
         (a, b) =>
@@ -260,6 +419,7 @@ export default function LeadsPage() {
           !lead.contactPhone.includes(q) &&
           !(lead.agentName?.toLowerCase().includes(q)) &&
           !(lead.productName?.toLowerCase().includes(q)) &&
+          !(lead.consultationTopic?.toLowerCase().includes(q)) &&
           !(lead.firstMessage?.toLowerCase().includes(q))
         )
           return false;
@@ -671,22 +831,16 @@ export default function LeadsPage() {
                                 <p className="text-sm font-medium text-white truncate">
                                   {displayName}
                                 </p>
-                                {lead.productName && (
+                                {lead.consultationTopic ? (
                                   <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1 truncate">
-                                    <ShoppingBag className="size-3 shrink-0" />
-                                    {lead.productBrand && (
-                                      <span className="text-slate-500">
-                                        {lead.productBrand}
-                                      </span>
-                                    )}
-                                    {lead.productName}
+                                    <Search className="size-3 shrink-0" />
+                                    {lead.consultationTopic}
                                   </p>
-                                )}
-                                {!lead.productName && lead.firstMessage && (
+                                ) : lead.firstMessage ? (
                                   <p className="text-xs text-slate-500 mt-0.5 truncate italic">
                                     &ldquo;{lead.firstMessage}&rdquo;
                                   </p>
-                                )}
+                                ) : null}
                                 <div className="flex items-center gap-3 mt-1.5">
                                   {lead.agentName &&
                                     groupBy !== "agent" && (
@@ -795,6 +949,16 @@ export default function LeadsPage() {
                     {selected.contactName || "—"}
                   </p>
                 </div>
+                {selected.contactEmail && (
+                  <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2.5">
+                    <p className="text-xs text-slate-500 flex items-center gap-1 mb-1">
+                      <Mail className="size-3" /> Email
+                    </p>
+                    <p className="text-sm text-white font-medium">
+                      {selected.contactEmail}
+                    </p>
+                  </div>
+                )}
                 {selected.agentName && (
                   <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2.5">
                     <p className="text-xs text-slate-500 flex items-center gap-1 mb-1">
@@ -831,29 +995,24 @@ export default function LeadsPage() {
                 </div>
               </div>
 
-              {/* Product interest */}
-              {selected.productName && (
+              {/* Consultation topic */}
+              {selected.consultationTopic && (
                 <div>
                   <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                    <ShoppingBag className="size-3.5" />
-                    Producto de interés
+                    <Search className="size-3.5" />
+                    Motivo de consulta
                   </h3>
                   <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-3">
                     <p className="text-sm text-white font-medium">
-                      {selected.productName}
+                      {selected.consultationTopic}
                     </p>
-                    <div className="flex items-center gap-3 mt-1">
-                      {selected.productBrand && (
-                        <span className="text-xs text-slate-400">
-                          {selected.productBrand}
-                        </span>
-                      )}
-                      {selected.productPrice && (
+                    {selected.productPrice && (
+                      <div className="flex items-center gap-3 mt-1">
                         <span className="text-xs text-emerald-400 font-medium">
                           ${Number(selected.productPrice).toLocaleString("es-AR")}
                         </span>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
