@@ -323,8 +323,8 @@ export function MessageProcessorProvider({
   // ── Backend keep-alive (prevents Render free-tier cold starts) ──────────
 
   useEffect(() => {
-    // Ping the backend every 4 minutes to keep it warm
-    const KEEP_ALIVE_MS = 4 * 60 * 1000;
+    // Ping the backend every 2 minutes to keep it warm (Render sleeps after 15 min)
+    const KEEP_ALIVE_MS = 2 * 60 * 1000;
     const ping = () => {
       fetch("/api/cron/keep-alive").catch(() => {});
     };

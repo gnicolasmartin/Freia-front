@@ -14,6 +14,7 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import {
   verifyHandshake,
   verifySignature,
@@ -145,40 +146,44 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Normalize to internal channel events
   const events = parseWhatsAppPayload(payload);
 
-  // Send each event to the backend for persistent storage (dedup handled there)
-  let ingested = 0;
-  for (const event of events) {
-    // Attach companyId to the event for downstream processing
-    if (companyId) {
+  // Attach companyId to events
+  if (companyId) {
+    for (const event of events) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (event as any).companyId = companyId;
     }
+  }
 
-    try {
-      const res = await fetchWithRetry(`${API_URL}/events/ingest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(event),
-      });
+  // Respond 200 to Meta immediately — forward to backend in background.
+  // This prevents Meta from timing out and retrying when the backend is cold.
+  after(async () => {
+    let ingested = 0;
+    for (const event of events) {
+      try {
+        const res = await fetchWithRetry(`${API_URL}/events/ingest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(event),
+        });
 
-      if (res.ok) {
-        const data = (await res.json()) as { stored: boolean };
-        if (data.stored) ingested++;
-      } else {
-        console.warn(`[WhatsApp Webhook] Backend ingest failed: ${res.status}`);
+        if (res.ok) {
+          const data = (await res.json()) as { stored: boolean };
+          if (data.stored) ingested++;
+        } else {
+          console.warn(`[WhatsApp Webhook] Backend ingest failed: ${res.status}`);
+        }
+      } catch (err) {
+        console.error("[WhatsApp Webhook] Failed to send event to backend:", err);
       }
-    } catch (err) {
-      console.error("[WhatsApp Webhook] Failed to send event to backend:", err);
     }
-  }
 
-  if (ingested > 0) {
-    console.info(
-      `[WhatsApp Webhook] Ingested ${ingested} event(s) for company=${companyId ?? "unknown"}:`,
-      events.map((e) => `${e.type}(${e.id.slice(0, 8)})`).join(", ")
-    );
-  }
+    if (ingested > 0) {
+      console.info(
+        `[WhatsApp Webhook] Ingested ${ingested} event(s) for company=${companyId ?? "unknown"}:`,
+        events.map((e) => `${e.type}(${e.id.slice(0, 8)})`).join(", ")
+      );
+    }
+  });
 
-  // Meta requires 200 quickly, regardless of processing outcome
   return new NextResponse("OK", { status: 200 });
 }
