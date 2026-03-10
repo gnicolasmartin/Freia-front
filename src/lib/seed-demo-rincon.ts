@@ -24,7 +24,7 @@ import type {
 } from "@/types/calendar";
 import { DEFAULT_SCHEDULE } from "@/types/calendar";
 
-const SEED_KEY = "freia_seed_rincon_v9";
+const SEED_KEY = "freia_seed_rincon_v10";
 const COMPANY_ID = "company_rincon";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -669,6 +669,7 @@ function cleanOtherDemoData(): boolean {
 
   // Invalidate other demo sentinels so they re-seed when switching back
   localStorage.removeItem("freia_seed_cubiertas_v16");
+  localStorage.removeItem("freia_seed_cubiertas_v17");
   localStorage.removeItem("freia_seed_importador_v3");
 
   return cleaned;
@@ -686,6 +687,7 @@ export function seedDemoRincon(): boolean {
   localStorage.removeItem("freia_seed_rincon_v6");
   localStorage.removeItem("freia_seed_rincon_v7");
   localStorage.removeItem("freia_seed_rincon_v8");
+  localStorage.removeItem("freia_seed_rincon_v9");
 
   // ALWAYS clean other demo data (runs even if already seeded)
   const cleaned = cleanOtherDemoData();
@@ -739,6 +741,29 @@ export function seedDemoRincon(): boolean {
     upsert("freia_flows", [FLOW], "name");
     upsert("freia_agents", [AGENT], "name");
     upsert("freia_fronts", [FRONT], "name");
+
+    // Seed demo conversations for dashboard metrics
+    const now = new Date();
+    const ago = (mins: number) => new Date(now.getTime() - mins * 60000).toISOString();
+    const calId = CALENDAR.id;
+    const res0 = RESOURCES[0].id; // El Rincón de Mi Mundo
+    const res2 = RESOURCES[2].id; // La Amorosa
+    const demoConversations = [
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_end", vars: { "contact.phone": "+5491166660001", "contact.name": "Sofía Martínez", channel: "whatsapp", "message.text": "Hola, quiero consultar disponibilidad para marzo", consulta_cliente: "disponibilidad marzo" }, varTimestamps: {}, status: "completed" as const, startedAt: ago(200), lastActivityAt: ago(190), retryCount: {}, toolExecutionLogs: [{ nodeId: "n_check_calendar", tool: "calendar_check", timestamp: ago(198), request: { calendarId: calId, startDate: "2026-03-13", endDate: "2026-03-16" }, response: { status: "available" }, durationMs: 150 }, { nodeId: "n_reservar", tool: "create_booking", timestamp: ago(192), request: { calendarId: calId, resourceId: res2, date: "2026-03-13", endDate: "2026-03-16", contactName: "Sofía Martínez" }, response: { status: "confirmed", data: { confirmationCode: "BK-M7K2" } }, durationMs: 80 }] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_end", vars: { "contact.phone": "+5491166660002", "contact.name": "Marcos Pérez", channel: "whatsapp", "message.text": "Tienen quinta con pileta para 20 personas?", consulta_cliente: "quinta con pileta 20 personas" }, varTimestamps: {}, status: "completed" as const, startedAt: ago(350), lastActivityAt: ago(340), retryCount: {}, toolExecutionLogs: [{ nodeId: "n_search_resources", tool: "search_resources", timestamp: ago(348), request: { calendarId: calId, query: "pileta grande 20 personas", minCapacity: 20 }, response: { status: "found" }, durationMs: 130 }] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_end", vars: { "contact.phone": "+5491166660003", "contact.name": "Luciana Torres", channel: "whatsapp", "message.text": "Disponibilidad para semana santa", consulta_cliente: "semana santa" }, varTimestamps: {}, status: "completed" as const, startedAt: ago(500), lastActivityAt: ago(492), retryCount: {}, toolExecutionLogs: [{ nodeId: "n_check_calendar", tool: "calendar_check", timestamp: ago(498), request: { calendarId: calId, startDate: "2026-03-29", endDate: "2026-04-05" }, response: { status: "available" }, durationMs: 140 }] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_ask_consulta", vars: { "contact.phone": "+5491166660004", "contact.name": "", channel: "whatsapp", "message.text": "Hola buen día" }, varTimestamps: {}, status: "abandoned" as const, startedAt: ago(100), lastActivityAt: ago(95), retryCount: {}, toolExecutionLogs: [] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_cond_intent", vars: { "contact.phone": "+5491166660005", "contact.name": "Diego Romero", channel: "whatsapp", "message.text": "Me interesa El Rincón de Mi Mundo", consulta_cliente: "el rincón de mi mundo" }, varTimestamps: {}, status: "abandoned" as const, startedAt: ago(250), lastActivityAt: ago(242), retryCount: {}, toolExecutionLogs: [] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_saludo", vars: { "contact.phone": "+5491166660006", "contact.name": "Valeria Sosa", channel: "whatsapp", "message.text": "Hola! Quiero info de La Amorosa", consulta_cliente: "la amorosa" }, varTimestamps: {}, status: "active" as const, startedAt: ago(3), lastActivityAt: ago(1), retryCount: {}, toolExecutionLogs: [] },
+    ];
+    upsert("freia_conversations", demoConversations);
+
+    // Seed demo audit log entries
+    const demoAudit = [
+      { id: uid(), timestamp: ago(1), type: "agent_status_change", agentId, agentName: AGENT.name, previousStatus: "paused", newStatus: "active" },
+      { id: uid(), timestamp: ago(60), type: "front_published", frontId: uid(), frontName: FRONT.name, subdomain: FRONT.subdomain, version: 1, performedBy: "admin" },
+    ];
+    upsert("freia_audit_log", demoAudit);
 
     localStorage.setItem(SEED_KEY, "1");
     console.log("[seed-demo-rincon] v9 done.");

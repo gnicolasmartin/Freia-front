@@ -13,7 +13,7 @@ import type { Agent } from "@/types/agent";
 import type { Front, FrontVersion, FrontPage, FrontSection } from "@/types/front";
 import { DEFAULT_FRONT_AUTH_CONFIG } from "@/types/front-auth";
 
-const SEED_KEY = "freia_seed_cubiertas_v16";
+const SEED_KEY = "freia_seed_cubiertas_v17";
 const COMPANY_ID = "company_cubiertas";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -893,6 +893,7 @@ const OLD_SEED_KEYS = [
   "freia_seed_cubiertas_v13",
   "freia_seed_cubiertas_v14",
   "freia_seed_cubiertas_v15",
+  "freia_seed_cubiertas_v16",
 ];
 
 export function seedDemoCubiertas(): boolean {
@@ -912,6 +913,7 @@ export function seedDemoCubiertas(): boolean {
   localStorage.removeItem("freia_seed_rincon_v7");
   localStorage.removeItem("freia_seed_rincon_v8");
   localStorage.removeItem("freia_seed_rincon_v9");
+  localStorage.removeItem("freia_seed_rincon_v10");
 
   // ALWAYS clean other demo's data (runs even if already seeded)
   let cleaned = false;
@@ -1018,6 +1020,28 @@ export function seedDemoCubiertas(): boolean {
     upsert("freia_flows", [FLOW], "name");
     upsert("freia_agents", [AGENT], "name");
     upsert("freia_fronts", [FRONT], "name");
+
+    // Seed demo conversations for dashboard metrics
+    const now = new Date();
+    const ago = (mins: number) => new Date(now.getTime() - mins * 60000).toISOString();
+    const demoConversations = [
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_end", vars: { "contact.phone": "+5491155550001", "contact.name": "María López", channel: "whatsapp", "message.text": "Hola, busco una cubierta 205/55 R16", consulta_cliente: "cubierta 205/55 R16", "product.name": "Cubierta Bridgestone Turanza T005 205/55 R16", "product.brand": "Bridgestone", "product.price": "89500" }, varTimestamps: {}, status: "completed" as const, startedAt: ago(180), lastActivityAt: ago(175), retryCount: {}, toolExecutionLogs: [{ nodeId: "n_stock", tool: "stock_lookup", timestamp: ago(178), request: { query: "205/55 R16" }, response: { status: "found" }, durationMs: 120 }], messages: [] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_end", vars: { "contact.phone": "+5491155550002", "contact.name": "Carlos Ruiz", channel: "whatsapp", "message.text": "Necesito cubiertas para mi camioneta", consulta_cliente: "cubiertas camioneta", "product.name": "Cubierta Pirelli Scorpion ATR 245/70 R16", "product.brand": "Pirelli" }, varTimestamps: {}, status: "completed" as const, startedAt: ago(300), lastActivityAt: ago(288), retryCount: {}, toolExecutionLogs: [{ nodeId: "n_stock", tool: "stock_lookup", timestamp: ago(298), request: { query: "camioneta 245/70" }, response: { status: "found" }, durationMs: 95 }], messages: [] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_end", vars: { "contact.phone": "+5491155550003", "contact.name": "Ana García", channel: "whatsapp", "message.text": "Precio de Michelin 195/65 R15?", consulta_cliente: "michelin 195/65 R15" }, varTimestamps: {}, status: "completed" as const, startedAt: ago(420), lastActivityAt: ago(414), retryCount: {}, toolExecutionLogs: [{ nodeId: "n_stock", tool: "stock_lookup", timestamp: ago(418), request: { query: "Michelin 195/65 R15" }, response: { status: "found" }, durationMs: 110 }], messages: [] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_ask_consulta", vars: { "contact.phone": "+5491155550004", "contact.name": "Roberto Díaz", channel: "whatsapp", "message.text": "Hola buenas tardes" }, varTimestamps: {}, status: "abandoned" as const, startedAt: ago(150), lastActivityAt: ago(145), retryCount: {}, toolExecutionLogs: [], messages: [] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_stock", vars: { "contact.phone": "+5491155550005", "contact.name": "", channel: "whatsapp", "message.text": "Tienen cubiertas baratas?", consulta_cliente: "cubiertas baratas" }, varTimestamps: {}, status: "abandoned" as const, startedAt: ago(500), lastActivityAt: ago(490), retryCount: {}, toolExecutionLogs: [], messages: [] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_saludo", vars: { "contact.phone": "+5491155550006", "contact.name": "Laura Fernández", channel: "whatsapp", "message.text": "Hola!", consulta_cliente: "bridgestone" }, varTimestamps: {}, status: "active" as const, startedAt: ago(5), lastActivityAt: ago(2), retryCount: {}, toolExecutionLogs: [], messages: [] },
+      { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_end", vars: { "contact.phone": "+5491155550007", "contact.name": "Pedro Gómez", channel: "whatsapp", "message.text": "Busco run flat 225/45 R17", consulta_cliente: "run flat 225/45 R17", "product.name": "Cubierta Continental ContiSportContact 5 225/45 R17" }, varTimestamps: {}, status: "completed" as const, startedAt: ago(60), lastActivityAt: ago(52), retryCount: {}, toolExecutionLogs: [{ nodeId: "n_stock", tool: "stock_lookup", timestamp: ago(58), request: { query: "run flat 225/45 R17" }, response: { status: "found" }, durationMs: 88 }], messages: [] },
+    ];
+    upsert("freia_conversations", demoConversations);
+
+    // Seed demo audit log entries
+    const demoAudit = [
+      { id: uid(), timestamp: ago(2), type: "agent_status_change", agentId, agentName: AGENT.name, previousStatus: "paused", newStatus: "active" },
+      { id: uid(), timestamp: ago(30), type: "front_published", frontId: uid(), frontName: FRONT.name, subdomain: FRONT.subdomain, version: 1, performedBy: "admin" },
+      { id: uid(), timestamp: ago(120), type: "agent_status_change", agentId, agentName: AGENT.name, previousStatus: "draft", newStatus: "active" },
+    ];
+    upsert("freia_audit_log", demoAudit);
 
     localStorage.setItem(SEED_KEY, "1");
     console.log("[seed-demo] v16 done. flows:", JSON.parse(localStorage.getItem("freia_flows") ?? "[]").length, "agents:", JSON.parse(localStorage.getItem("freia_agents") ?? "[]").length, "fronts:", JSON.parse(localStorage.getItem("freia_fronts") ?? "[]").length);
