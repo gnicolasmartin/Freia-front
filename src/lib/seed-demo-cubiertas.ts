@@ -911,6 +911,7 @@ export function seedDemoCubiertas(): boolean {
   localStorage.removeItem("freia_seed_rincon_v6");
   localStorage.removeItem("freia_seed_rincon_v7");
   localStorage.removeItem("freia_seed_rincon_v8");
+  localStorage.removeItem("freia_seed_rincon_v9");
 
   // ALWAYS clean other demo's data (runs even if already seeded)
   let cleaned = false;

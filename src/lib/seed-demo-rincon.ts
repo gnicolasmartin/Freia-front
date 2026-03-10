@@ -24,7 +24,7 @@ import type {
 } from "@/types/calendar";
 import { DEFAULT_SCHEDULE } from "@/types/calendar";
 
-const SEED_KEY = "freia_seed_rincon_v8";
+const SEED_KEY = "freia_seed_rincon_v9";
 const COMPANY_ID = "company_rincon";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -332,7 +332,7 @@ const nodes: FlowNode[] = [
     data: {
       label: "Info general",
       message:
-        "📋 Te paso la info de nuestras quintas:\n\nTodas incluyen:\n✅ Pileta\n✅ Parque amplio con parrilla\n✅ DirecTV con fútbol\n✅ WiFi\n✅ Vajilla y mobiliario\n✅ Se aceptan mascotas (excepto razas agresivas)\n\n⚠️ Reglas importantes:\n• Música solo hasta las 21hs y a volumen moderado\n• En temporada alta (dic-feb): mínimo 7 días\n• Fines de semana largo: mínimo 2 días\n\nPodés preguntarme por disponibilidad en fechas específicas, o buscar la quinta ideal según lo que necesitás.",
+        "Tenemos tres quintas: *El Rincón de Mi Mundo*, *El Rincón II* y *La Amorosa*. Todas incluyen pileta, parque con parrilla, DirecTV, WiFi y vajilla.\n\n¿Querés que te cuente sobre alguna en particular, o preferís consultar disponibilidad para alguna fecha?",
     },
   },
   // ── Convergencia: ¿Seguimos? ──
@@ -685,6 +685,7 @@ export function seedDemoRincon(): boolean {
   localStorage.removeItem("freia_seed_rincon_v5");
   localStorage.removeItem("freia_seed_rincon_v6");
   localStorage.removeItem("freia_seed_rincon_v7");
+  localStorage.removeItem("freia_seed_rincon_v8");
 
   // ALWAYS clean other demo data (runs even if already seeded)
   const cleaned = cleanOtherDemoData();
@@ -740,7 +741,7 @@ export function seedDemoRincon(): boolean {
     upsert("freia_fronts", [FRONT], "name");
 
     localStorage.setItem(SEED_KEY, "1");
-    console.log("[seed-demo-rincon] v8 done.");
+    console.log("[seed-demo-rincon] v9 done.");
     return true;
   } catch (err) {
     console.error("[seed-demo-rincon] error:", err);

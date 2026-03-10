@@ -619,6 +619,60 @@ export async function callLLMWithTool(
  *
  * On failure, returns an empty string so the caller can show a fallback.
  */
+/**
+ * Slim down a tool result for LLM consumption — strip heavy metadata,
+ * keep only what the LLM needs to formulate a conversational response.
+ */
+function slimToolResult(tool: string, result: Record<string, unknown>): Record<string, unknown> {
+  const data = result.data as Record<string, unknown> | undefined;
+  if (!data) return result;
+
+  // For search_resources / calendar_check: strip full resource objects, keep summaries
+  if (tool === "search_resources" || tool === "calendar_check") {
+    const slim = { ...result, data: { ...data } };
+    const slimData = slim.data as Record<string, unknown>;
+
+    // Slim down matches array
+    if (Array.isArray(slimData.matches)) {
+      slimData.matches = (slimData.matches as Record<string, unknown>[]).map((m) => {
+        const res = m.resource as Record<string, unknown> | undefined;
+        return {
+          name: res?.name ?? "?",
+          description: res?.description ?? "",
+          capacity: res?.metadata ? (res.metadata as Record<string, string>).capacidad_personas : undefined,
+          available: m.available,
+          availableDates: m.availableDates,
+          totalDatesInRange: m.totalDatesInRange,
+          capacityMatch: m.capacityMatch,
+          featureMatches: m.featureMatches,
+          reason: m.reason,
+        };
+      });
+    }
+    // Slim down suggestions array
+    if (Array.isArray(slimData.suggestions)) {
+      slimData.suggestions = (slimData.suggestions as Record<string, unknown>[]).map((s) => {
+        const res = s.resource as Record<string, unknown> | undefined;
+        return {
+          name: res?.name ?? "?",
+          reason: s.reason,
+        };
+      });
+    }
+    // Slim down resources array (calendar_check range results)
+    if (Array.isArray(slimData.resources)) {
+      slimData.resources = (slimData.resources as Record<string, unknown>[]).map((r) => ({
+        resourceName: r.resourceName,
+        availableDates: r.availableDates,
+        blockedDates: r.blockedDates,
+      }));
+    }
+    return slim;
+  }
+
+  return result;
+}
+
 export async function finalizeToolWithLLM(
   toolCallId: string,
   toolFunctionName: string,
@@ -630,6 +684,7 @@ export async function finalizeToolWithLLM(
   onDecision?: OnDecisionCb
 ): Promise<string> {
   const systemPrompt = buildSystemPrompt(agent);
+  const slimResult = slimToolResult(toolFunctionName, toolResult);
 
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
@@ -649,10 +704,11 @@ export async function finalizeToolWithLLM(
         },
       ],
     },
-    // The tool result message
+    // The tool result message (slimmed down)
     {
       role: "tool",
-      content: JSON.stringify(toolResult),
+      content: JSON.stringify(slimResult) +
+        "\n[INSTRUCCIÓN: Respondé de forma concisa. Mencioná solo los datos relevantes a lo que el usuario preguntó. No listes todas las reglas/amenities a menos que el usuario lo pida específicamente.]",
       tool_call_id: toolCallId,
     },
   ];
