@@ -23,6 +23,7 @@ import type { SimulationState, SimulationOptions } from "./flow-simulator";
 import { initSimulation, stepSimulation } from "./flow-simulator";
 import { resolveRoute } from "./whatsapp-router";
 import { getBusinessHoursConfig } from "./business-hours";
+import { recordUserMessageInWindow } from "./conversation-window";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -270,6 +271,9 @@ export async function processInboundMessage(
   }
 
   console.info(`[MessageProcessor] Inbound from ${contactPhone}: "${messageText.slice(0, 100)}"`);
+
+  // Record inbound message to keep the 24h conversation window open
+  try { recordUserMessageInWindow(contactPhone); } catch { /* localStorage unavailable */ }
 
   // ── 1. Check for existing active conversation ──────────────────────────────
 

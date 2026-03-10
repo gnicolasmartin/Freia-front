@@ -28,6 +28,7 @@ import { useConversations } from "@/providers/ConversationsProvider";
 const POLL_INTERVAL_MS = 3_000;
 const CONVERSATIONS_STORAGE_KEY = "freia_wa_conversations";
 const STALE_CONVERSATION_MS = 24 * 60 * 60 * 1000; // 24h
+const PROCESSING_LOCK_TIMEOUT_MS = 60_000; // Force-reset lock after 60s
 
 // Dedup: prevent processing the same WhatsApp message twice
 const processedMessageIds = new Set<string>();
@@ -155,6 +156,7 @@ export function MessageProcessorProvider({
   const [conversationsVersion, setConversationsVersion] = useState(0);
 
   const processingRef = useRef(false);
+  const processingStartedAtRef = useRef<number>(0);
 
   // Stable reference to latest provider values
   const dataRef = useRef({
@@ -183,8 +185,14 @@ export function MessageProcessorProvider({
   }, [getChannelConfig]);
 
   const pollAndProcess = useCallback(async () => {
-    if (processingRef.current) return;
+    // Force-reset stuck lock after timeout (e.g. fetch hung, tab was suspended)
+    if (processingRef.current) {
+      const elapsed = Date.now() - processingStartedAtRef.current;
+      if (elapsed < PROCESSING_LOCK_TIMEOUT_MS) return;
+      console.warn(`[MessageProcessor] Processing lock stuck for ${Math.round(elapsed / 1000)}s — force-resetting`);
+    }
     processingRef.current = true;
+    processingStartedAtRef.current = Date.now();
 
     try {
       // Fetch events from queue
@@ -327,9 +335,22 @@ export function MessageProcessorProvider({
     pollAndProcess();
 
     const interval = setInterval(pollAndProcess, POLL_INTERVAL_MS);
+
+    // Re-trigger poll immediately when tab regains focus (browser throttles
+    // background-tab timers aggressively, so messages pile up unprocessed)
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        console.info("[MessageProcessor] Tab regained focus — polling immediately");
+        processingRef.current = false; // Reset lock in case it was stuck
+        pollAndProcess();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
     return () => {
       console.info("[MessageProcessor] Stopping polling");
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [pollAndProcess, getChannelConfig]);
 
