@@ -24,7 +24,7 @@ import type {
 } from "@/types/calendar";
 import { DEFAULT_SCHEDULE } from "@/types/calendar";
 
-const SEED_KEY = "freia_seed_rincon_v10";
+const SEED_KEY = "freia_seed_rincon_v11";
 const COMPANY_ID = "company_rincon";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -688,6 +688,7 @@ export function seedDemoRincon(): boolean {
   localStorage.removeItem("freia_seed_rincon_v7");
   localStorage.removeItem("freia_seed_rincon_v8");
   localStorage.removeItem("freia_seed_rincon_v9");
+  localStorage.removeItem("freia_seed_rincon_v10");
 
   // ALWAYS clean other demo data (runs even if already seeded)
   const cleaned = cleanOtherDemoData();
@@ -757,6 +758,13 @@ export function seedDemoRincon(): boolean {
       { id: uid(), flowId, versionId: "", agentId, currentNodeId: "n_saludo", vars: { "contact.phone": "+5491166660006", "contact.name": "Valeria Sosa", channel: "whatsapp", "message.text": "Hola! Quiero info de La Amorosa", consulta_cliente: "la amorosa" }, varTimestamps: {}, status: "active" as const, startedAt: ago(3), lastActivityAt: ago(1), retryCount: {}, toolExecutionLogs: [] },
     ];
     upsert("freia_conversations", demoConversations);
+
+    // Seed WhatsApp routing — default agent so inbound messages reach the flow
+    localStorage.setItem("freia_wa_routing", JSON.stringify({
+      rules: [],
+      defaultAgentId: agentId,
+      updatedAt: new Date().toISOString(),
+    }));
 
     // Seed demo audit log entries
     const demoAudit = [
