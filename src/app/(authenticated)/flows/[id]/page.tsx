@@ -186,61 +186,112 @@ export default function FlowEditorPage({
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)] sm:h-[calc(100vh-7rem)] lg:h-screen -m-4 sm:-m-6 lg:-m-8">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-slate-900/80 backdrop-blur-sm shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={() => router.push("/flows")}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
-            aria-label="Volver a flujos"
-          >
-            <ArrowLeft className="size-5" />
-          </button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-semibold text-white truncate">
-                {flow.name}
-              </h1>
-              <FlowStatusBadge
-                isActive={isActive}
-                hasBeenPublished={hasBeenPublished}
-                isDraftModified={!!isDraftModified}
-              />
-              {currentVersion && (
-                <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">
-                  v{currentVersion.version}
+      <div className="px-4 py-2 border-b border-slate-700 bg-slate-900/80 backdrop-blur-sm shrink-0 space-y-2">
+        {/* Row 1: title + save/publish */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => router.push("/flows")}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors shrink-0"
+              aria-label="Volver a flujos"
+            >
+              <ArrowLeft className="size-5" />
+            </button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-semibold text-white truncate">
+                  {flow.name}
+                </h1>
+                <FlowStatusBadge
+                  isActive={isActive}
+                  hasBeenPublished={hasBeenPublished}
+                  isDraftModified={!!isDraftModified}
+                />
+                {currentVersion && (
+                  <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">
+                    v{currentVersion.version}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 mt-0.5">
+                <SaveStatusIndicator saveState={saveState} />
+                <span className="text-xs text-slate-500">
+                  Modificado{" "}
+                  {new Date(flow.updatedAt).toLocaleDateString("es-AR", {
+                    day: "2-digit",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </span>
-              )}
+              </div>
             </div>
-            <div className="flex items-center gap-3 mt-0.5">
-              <SaveStatusIndicator saveState={saveState} />
-              <span className="text-xs text-slate-500">
-                Modificado{" "}
-                {new Date(flow.updatedAt).toLocaleDateString("es-AR", {
-                  day: "2-digit",
-                  month: "short",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-            </div>
+          </div>
+
+          {/* Save & Publish — always visible */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Autosave toggle */}
+            <label className="hidden lg:flex items-center gap-2 cursor-pointer">
+              <span className="text-xs text-slate-400">Auto</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoSave}
+                onClick={() => setAutoSave(!autoSave)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  autoSave ? "bg-[#dd7430]" : "bg-slate-600"
+                }`}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                    autoSave ? "translate-x-4.5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </label>
+
+            {/* Manual save button */}
+            <button
+              onClick={handleSave}
+              disabled={
+                saveState.status === "saved" || saveState.status === "saving"
+              }
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-slate-700 text-slate-300 hover:bg-slate-600"
+            >
+              <Save className="size-4" />
+              <span className="hidden sm:inline">Guardar</span>
+            </button>
+
+            {/* Publish button */}
+            <button
+              onClick={handlePublish}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? "bg-green-500/20 text-green-400 hover:bg-green-500/30"
+                  : "bg-[#dd7430] text-white hover:bg-[#c4652a]"
+              }`}
+            >
+              <Rocket className="size-4" />
+              <span className="hidden sm:inline">{isActive ? "Republicar" : "Publicar"}</span>
+            </button>
           </div>
         </div>
 
-        {/* Controls */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Row 2: panel toggles */}
+        <div className="flex items-center gap-1.5 flex-wrap">
           {/* Version history toggle */}
           <button
             onClick={() => setShowVersionHistory(!showVersionHistory)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               showVersionHistory
                 ? "bg-slate-600 text-white"
-                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                : "bg-slate-700/60 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
             }`}
           >
-            <History className="size-4" />
-            <span className="hidden sm:inline">Versiones</span>
+            <History className="size-3.5" />
+            Versiones
             {versions.length > 0 && (
-              <span className="text-xs bg-slate-600 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] bg-slate-600 px-1 py-px rounded">
                 {versions.length}
               </span>
             )}
@@ -249,16 +300,16 @@ export default function FlowEditorPage({
           {/* Variables toggle */}
           <button
             onClick={() => setShowVariables(!showVariables)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               showVariables
                 ? "bg-slate-600 text-white"
-                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                : "bg-slate-700/60 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
             }`}
           >
-            <Variable className="size-4" />
-            <span className="hidden sm:inline">Variables</span>
+            <Variable className="size-3.5" />
+            Variables
             {(flow.variables?.length ?? 0) > 0 && (
-              <span className="text-xs bg-slate-600 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] bg-slate-600 px-1 py-px rounded">
                 {flow.variables.length}
               </span>
             )}
@@ -267,16 +318,16 @@ export default function FlowEditorPage({
           {/* Policies toggle */}
           <button
             onClick={() => setShowPolicies(!showPolicies)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               showPolicies
                 ? "bg-slate-600 text-white"
-                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                : "bg-slate-700/60 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
             }`}
           >
-            <Shield className="size-4" />
-            <span className="hidden sm:inline">Políticas</span>
+            <Shield className="size-3.5" />
+            Políticas
             {effectivePolicies.length > 0 && (
-              <span className="text-xs bg-slate-600 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] bg-slate-600 px-1 py-px rounded">
                 {effectivePolicies.length}
               </span>
             )}
@@ -285,16 +336,16 @@ export default function FlowEditorPage({
           {/* Tools toggle */}
           <button
             onClick={() => setShowTools(!showTools)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               showTools
                 ? "bg-slate-600 text-white"
-                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                : "bg-slate-700/60 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
             }`}
           >
-            <Wrench className="size-4" />
-            <span className="hidden sm:inline">Herramientas</span>
+            <Wrench className="size-3.5" />
+            Herramientas
             {(flow.allowedToolIds?.length ?? 0) > 0 && (
-              <span className="text-xs bg-slate-600 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] bg-slate-600 px-1 py-px rounded">
                 {flow.allowedToolIds.length}
               </span>
             )}
@@ -303,73 +354,30 @@ export default function FlowEditorPage({
           {/* Stock/catalog toggle */}
           <button
             onClick={() => updateFlow(id, { useStock: !flow.useStock })}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               flow.useStock
                 ? "bg-emerald-500/20 text-emerald-400"
-                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                : "bg-slate-700/60 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
             }`}
             aria-label="Usar catálogo/stock"
           >
-            <Package className="size-4" />
-            <span className="hidden sm:inline">Catálogo</span>
+            <Package className="size-3.5" />
+            Catálogo
           </button>
+
+          <div className="w-px h-4 bg-slate-700 mx-0.5" />
 
           {/* Test flow toggle */}
           <button
             onClick={() => setShowTestChat(!showTestChat)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               showTestChat
                 ? "bg-emerald-500/20 text-emerald-400"
-                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                : "bg-slate-700/60 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
             }`}
           >
-            <Play className="size-4" />
-            <span className="hidden sm:inline">Probar</span>
-          </button>
-
-          {/* Autosave toggle */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <span className="text-xs text-slate-400">Autoguardado</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoSave}
-              onClick={() => setAutoSave(!autoSave)}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                autoSave ? "bg-[#dd7430]" : "bg-slate-600"
-              }`}
-            >
-              <span
-                className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                  autoSave ? "translate-x-4.5" : "translate-x-0.5"
-                }`}
-              />
-            </button>
-          </label>
-
-          {/* Manual save button */}
-          <button
-            onClick={handleSave}
-            disabled={
-              saveState.status === "saved" || saveState.status === "saving"
-            }
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-slate-700 text-slate-300 hover:bg-slate-600"
-          >
-            <Save className="size-4" />
-            Guardar
-          </button>
-
-          {/* Publish button */}
-          <button
-            onClick={handlePublish}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              isActive
-                ? "bg-green-500/20 text-green-400 hover:bg-green-500/30"
-                : "bg-[#dd7430] text-white hover:bg-[#c4652a]"
-            }`}
-          >
-            <Rocket className="size-4" />
-            {isActive ? "Republicar" : "Publicar"}
+            <Play className="size-3.5" />
+            Probar
           </button>
         </div>
       </div>
