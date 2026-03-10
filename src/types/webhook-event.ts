@@ -104,7 +104,45 @@ export interface MessageStatusUpdatedEvent {
   raw: unknown;
 }
 
-export type ChannelEvent = MessageReceivedEvent | MessageStatusUpdatedEvent;
+// ─── Email channel events ────────────────────────────────────────────────────
+
+export type EmailMessageStatus = "sent" | "delivered" | "bounced" | "failed";
+
+export interface EmailMessageReceivedEvent {
+  type: "channel.message.received";
+  id: string;
+  receivedAt: string;
+  channel: "email";
+  messageId: string;
+  from: string;
+  fromName?: string;
+  to: string;
+  subject: string;
+  bodyText?: string;
+  bodyHtml?: string;
+  inReplyTo?: string;
+  attachments?: { filename: string; contentType: string; size: number }[];
+  raw: unknown;
+}
+
+export interface EmailStatusUpdatedEvent {
+  type: "channel.message.status.updated";
+  id: string;
+  receivedAt: string;
+  channel: "email";
+  messageId: string;
+  status: EmailMessageStatus;
+  timestamp: string;
+  recipientId: string;
+  error?: { code: number; title: string; message?: string };
+  raw: unknown;
+}
+
+export type ChannelEvent =
+  | MessageReceivedEvent
+  | MessageStatusUpdatedEvent
+  | EmailMessageReceivedEvent
+  | EmailStatusUpdatedEvent;
 
 // ─── Internal queue item ────────────────────────────────────────────────────
 

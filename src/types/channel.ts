@@ -65,6 +65,8 @@ export const CHANNEL_META: Record<ChannelScope, ChannelMeta> = {
   email: {
     label: "Email",
     description: "Gestiona conversaciones por correo electrónico.",
+    connectDescription:
+      "Configurá un servidor SMTP para enviar correos y un webhook para recibir correos entrantes.",
     iconBgClass: "bg-amber-500/20",
     iconTextClass: "text-amber-400",
     borderClass: "border-amber-500/30",
@@ -100,7 +102,7 @@ export const DEFAULT_CHANNEL_CONFIGS: ChannelConfig[] = [
   {
     channel: "email",
     enabled: false,
-    requiresConnection: false,
-    connectionStatus: "not_required",
+    requiresConnection: true,
+    connectionStatus: "disconnected",
   },
 ];

@@ -94,6 +94,7 @@ import {
 } from "@/providers/WhatsAppMessagesProvider";
 import { getErrorSuggestion } from "@/lib/whatsapp-errors";
 import { addWhatsAppAuditEntry } from "@/lib/whatsapp-audit";
+import { useEmailMessages } from "@/providers/EmailMessagesProvider";
 
 // --- Icons per channel ---
 const CHANNEL_ICONS: Record<ChannelScope, React.ReactNode> = {
@@ -351,6 +352,568 @@ function WhatsAppConnectForm({
           Cancelar
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── Email SMTP credential form ──────────────────────────────────────────────
+
+interface EmailFields {
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+  from_address: string;
+  sender_name: string;
+}
+
+interface EmailConnectFormProps {
+  initialValues?: EmailFields;
+  onConnect: (metadata: Record<string, string>) => void;
+  onCancel: () => void;
+}
+
+function EmailConnectForm({
+  initialValues,
+  onConnect,
+  onCancel,
+}: EmailConnectFormProps) {
+  const [fields, setFields] = useState<EmailFields>({
+    host: initialValues?.host ?? "",
+    port: initialValues?.port ?? "587",
+    username: initialValues?.username ?? "",
+    password: initialValues?.password ?? "",
+    from_address: initialValues?.from_address ?? "",
+    sender_name: initialValues?.sender_name ?? "",
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [testStatus, setTestStatus] = useState<TestStatus>("idle");
+  const [testMessage, setTestMessage] = useState("");
+
+  const allFilled =
+    fields.host.trim() &&
+    fields.port.trim() &&
+    fields.username.trim() &&
+    fields.password.trim() &&
+    fields.from_address.trim();
+
+  const setField = (k: keyof EmailFields, v: string) => {
+    setFields((prev) => ({ ...prev, [k]: v }));
+    if (testStatus !== "idle") {
+      setTestStatus("idle");
+      setTestMessage("");
+    }
+  };
+
+  const handleTest = async () => {
+    if (!allFilled) return;
+    setTestStatus("testing");
+    setTestMessage("");
+
+    try {
+      const res = await fetch("/api/channels/email/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: fields.host.trim(),
+          port: parseInt(fields.port, 10),
+          username: fields.username.trim(),
+          password: fields.password,
+        }),
+      });
+      const data = (await res.json()) as { success: boolean; error?: string };
+
+      if (data.success) {
+        setTestStatus("success");
+        setTestMessage(
+          `Conexión SMTP verificada · ${fields.host}:${fields.port}`
+        );
+        setTimeout(() => {
+          onConnect({ ...fields });
+        }, 900);
+      } else {
+        setTestStatus("error");
+        setTestMessage(data.error ?? "Error de conexión SMTP");
+      }
+    } catch {
+      setTestStatus("error");
+      setTestMessage("Error de red al verificar la conexión");
+    }
+  };
+
+  const inputBase =
+    "w-full rounded-lg border bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none transition-colors";
+  const inputNormal = `${inputBase} border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30`;
+
+  return (
+    <div className="space-y-4 pt-3 border-t border-slate-700">
+      <p className="text-xs text-slate-400">
+        Configurá las credenciales de tu servidor{" "}
+        <strong className="text-slate-300">SMTP</strong> para enviar correos.
+      </p>
+
+      {/* Host & Port */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-2">
+          <label className="flex items-center gap-1.5 text-xs text-slate-400 mb-1.5">
+            <Globe className="size-3 text-slate-600" />
+            Host SMTP
+            <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            value={fields.host}
+            onChange={(e) => setField("host", e.target.value)}
+            placeholder="smtp.gmail.com"
+            className={inputNormal}
+          />
+        </div>
+        <div>
+          <label className="flex items-center gap-1.5 text-xs text-slate-400 mb-1.5">
+            <Hash className="size-3 text-slate-600" />
+            Puerto
+            <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="number"
+            value={fields.port}
+            onChange={(e) => setField("port", e.target.value)}
+            placeholder="587"
+            className={inputNormal}
+          />
+          <p className="text-[10px] text-slate-600 mt-1">
+            465 (TLS) o 587 (STARTTLS)
+          </p>
+        </div>
+      </div>
+
+      {/* Username */}
+      <div>
+        <label className="flex items-center gap-1.5 text-xs text-slate-400 mb-1.5">
+          <Mail className="size-3 text-slate-600" />
+          Usuario SMTP
+          <span className="text-red-400">*</span>
+        </label>
+        <input
+          type="text"
+          value={fields.username}
+          onChange={(e) => setField("username", e.target.value)}
+          placeholder="user@empresa.com"
+          className={inputNormal}
+        />
+      </div>
+
+      {/* Password */}
+      <div>
+        <label className="flex items-center gap-1.5 text-xs text-slate-400 mb-1.5">
+          <KeyRound className="size-3 text-slate-600" />
+          Contraseña SMTP
+          <span className="text-red-400">*</span>
+        </label>
+        <div className="relative">
+          <input
+            type={showPassword ? "text" : "password"}
+            value={fields.password}
+            onChange={(e) => setField("password", e.target.value)}
+            placeholder="••••••••"
+            className={`${inputNormal} pr-9`}
+            autoComplete="new-password"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-400 transition-colors"
+            tabIndex={-1}
+          >
+            {showPassword ? (
+              <EyeOff className="size-3.5" />
+            ) : (
+              <Eye className="size-3.5" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* From address & Sender name */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="flex items-center gap-1.5 text-xs text-slate-400 mb-1.5">
+            <Send className="size-3 text-slate-600" />
+            Dirección remitente
+            <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="email"
+            value={fields.from_address}
+            onChange={(e) => setField("from_address", e.target.value)}
+            placeholder="soporte@empresa.com"
+            className={inputNormal}
+          />
+        </div>
+        <div>
+          <label className="flex items-center gap-1.5 text-xs text-slate-400 mb-1.5">
+            <Tag className="size-3 text-slate-600" />
+            Nombre remitente
+          </label>
+          <input
+            type="text"
+            value={fields.sender_name}
+            onChange={(e) => setField("sender_name", e.target.value)}
+            placeholder="Mi Empresa"
+            className={inputNormal}
+          />
+        </div>
+      </div>
+
+      {/* Security note */}
+      <div className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5">
+        <ShieldAlert className="size-3.5 text-slate-500 shrink-0 mt-0.5" />
+        <p className="text-[10px] text-slate-500 leading-relaxed">
+          <strong className="text-slate-400">Nota de seguridad:</strong> En
+          producción, las credenciales deben almacenarse en un secret manager.
+          Este entorno las guarda localmente de forma simulada.
+        </p>
+      </div>
+
+      {/* Test result feedback */}
+      {testStatus === "error" && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-800/40 bg-red-900/10 px-3 py-2 text-xs text-red-400">
+          <XCircle className="size-3.5 shrink-0 mt-0.5" />
+          {testMessage}
+        </div>
+      )}
+      {testStatus === "success" && (
+        <div className="flex items-start gap-2 rounded-lg border border-emerald-800/40 bg-emerald-900/10 px-3 py-2 text-xs text-emerald-400">
+          <CheckCircle2 className="size-3.5 shrink-0 mt-0.5" />
+          {testMessage} — conectando…
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2">
+        <button
+          onClick={handleTest}
+          disabled={!allFilled || testStatus === "testing" || testStatus === "success"}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {testStatus === "testing" ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : testStatus === "success" ? (
+            <CheckCircle2 className="size-3.5" />
+          ) : (
+            <FlaskConical className="size-3.5" />
+          )}
+          {testStatus === "testing"
+            ? "Verificando…"
+            : testStatus === "success"
+            ? "Verificado"
+            : "Probar conexión"}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={testStatus === "testing" || testStatus === "success"}
+          className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-xs hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Email connected summary + sub-panels ────────────────────────────────────
+
+function EmailConnectedSummary({
+  metadata,
+  onEdit,
+}: {
+  metadata: Record<string, string>;
+  onEdit: () => void;
+}) {
+  return (
+    <>
+      <div className="mt-3 rounded-lg border border-slate-700 bg-slate-900/60 divide-y divide-slate-700/60">
+        <div className="flex items-center justify-between px-3 py-2 text-xs">
+          <span className="text-slate-500 flex items-center gap-1.5">
+            <Globe className="size-3" /> Host
+          </span>
+          <span className="font-mono text-slate-300">
+            {metadata.host}:{metadata.port}
+          </span>
+        </div>
+        <div className="flex items-center justify-between px-3 py-2 text-xs">
+          <span className="text-slate-500 flex items-center gap-1.5">
+            <Mail className="size-3" /> Usuario
+          </span>
+          <span className="font-mono text-slate-300">{metadata.username}</span>
+        </div>
+        <div className="flex items-center justify-between px-3 py-2 text-xs">
+          <span className="text-slate-500 flex items-center gap-1.5">
+            <KeyRound className="size-3" /> Contraseña
+          </span>
+          <span className="font-mono text-slate-600 tracking-widest text-[11px]">
+            ●●●●●●●●●●●●
+          </span>
+        </div>
+        <div className="flex items-center justify-between px-3 py-2 text-xs">
+          <span className="text-slate-500 flex items-center gap-1.5">
+            <Send className="size-3" /> Remitente
+          </span>
+          <span className="font-mono text-slate-300">
+            {metadata.sender_name ? `${metadata.sender_name} <${metadata.from_address}>` : metadata.from_address}
+          </span>
+        </div>
+        <div className="px-3 py-2 flex justify-end">
+          <button
+            onClick={onEdit}
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <Pencil className="size-3" />
+            Editar credenciales
+          </button>
+        </div>
+      </div>
+
+      <EmailWebhookPanel />
+      <EmailMessagesPanel />
+      <EmailTestModePanel />
+    </>
+  );
+}
+
+// ─── Email webhook panel ─────────────────────────────────────────────────────
+
+function EmailWebhookPanel() {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const webhookUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/api/webhooks/email`
+      : "/api/webhooks/email";
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(webhookUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-700 bg-slate-900/40 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center justify-between w-full px-3 py-2.5 text-xs text-slate-400 hover:text-white hover:bg-slate-800/50 transition-colors"
+      >
+        <span className="flex items-center gap-1.5 font-medium">
+          <Webhook className="size-3.5 text-emerald-500" />
+          Webhook de entrada
+        </span>
+        <ChevronDown
+          className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-slate-700 px-3 pb-3 space-y-3 pt-3">
+          <p className="text-[10px] text-slate-500">
+            Configurá tu proveedor de email (SendGrid, Mailgun, etc.) para
+            reenviar correos entrantes a esta URL:
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-[10px] font-mono bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-emerald-400 truncate">
+              {webhookUrl}
+            </code>
+            <button
+              onClick={handleCopy}
+              className="p-1.5 rounded-lg border border-slate-700 text-slate-500 hover:text-white hover:bg-slate-700/50 transition-colors"
+            >
+              {copied ? (
+                <Check className="size-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
+            </button>
+          </div>
+          <div className="space-y-1.5 text-[10px] text-slate-500">
+            <p className="font-medium text-slate-400">Proveedores soportados:</p>
+            <p>
+              <strong className="text-slate-400">SendGrid:</strong> Inbound
+              Parse → Webhook URL → POST JSON
+            </p>
+            <p>
+              <strong className="text-slate-400">Mailgun:</strong> Routes →
+              Forward → POST a esta URL
+            </p>
+            <p>
+              <strong className="text-slate-400">Genérico:</strong> JSON con
+              campos from, to, subject, text/html
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Email messages panel ────────────────────────────────────────────────────
+
+function EmailMessagesPanel() {
+  const [open, setOpen] = useState(false);
+  const { messages, clearMessages } = useEmailMessages();
+
+  const STATUS_BADGE: Record<
+    string,
+    { label: string; cls: string }
+  > = {
+    pending: { label: "Pendiente", cls: "bg-slate-700 text-slate-400" },
+    sent: { label: "Enviado", cls: "bg-sky-900/30 text-sky-400" },
+    delivered: { label: "Entregado", cls: "bg-emerald-900/30 text-emerald-400" },
+    bounced: { label: "Rebotado", cls: "bg-amber-900/30 text-amber-400" },
+    failed: { label: "Fallido", cls: "bg-red-900/30 text-red-400" },
+  };
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-700 bg-slate-900/40 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center justify-between w-full px-3 py-2.5 text-xs text-slate-400 hover:text-white hover:bg-slate-800/50 transition-colors"
+      >
+        <span className="flex items-center gap-1.5 font-medium">
+          <Mail className="size-3.5 text-amber-400" />
+          Emails enviados
+          {messages.length > 0 && (
+            <span className="text-[10px] bg-slate-600 px-1 py-px rounded">
+              {messages.length}
+            </span>
+          )}
+        </span>
+        <ChevronDown
+          className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-slate-700 px-3 pb-3 pt-3 space-y-2">
+          {messages.length === 0 ? (
+            <p className="text-[10px] text-slate-600 text-center py-3">
+              No hay emails enviados aún.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                {messages.slice(0, 20).map((msg) => {
+                  const badge = STATUS_BADGE[msg.status] ?? STATUS_BADGE.pending;
+                  return (
+                    <div
+                      key={msg.id}
+                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700/50"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] text-slate-300 truncate">
+                          {msg.to}
+                        </p>
+                        <p className="text-[10px] text-slate-500 truncate">
+                          {msg.subject}
+                        </p>
+                      </div>
+                      <span
+                        className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium ${badge.cls}`}
+                      >
+                        {badge.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                onClick={clearMessages}
+                className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors"
+              >
+                Limpiar historial
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Email test mode panel ───────────────────────────────────────────────────
+
+function EmailTestModePanel() {
+  const [open, setOpen] = useState(false);
+  const { testMode, setTestMode, sendEmail } = useEmailMessages();
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  const handleTestSend = async () => {
+    setTestResult(null);
+    const prev = testMode;
+    if (!prev) setTestMode(true);
+    const id = await sendEmail(
+      "test@example.com",
+      "Email de prueba",
+      "Este es un email de prueba enviado desde Freia.",
+    );
+    if (!prev) setTestMode(prev);
+    setTestResult(id ? `Enviado con ID: ${id}` : "Error al enviar");
+  };
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-700 bg-slate-900/40 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center justify-between w-full px-3 py-2.5 text-xs text-slate-400 hover:text-white hover:bg-slate-800/50 transition-colors"
+      >
+        <span className="flex items-center gap-1.5 font-medium">
+          <FlaskConical className="size-3.5 text-orange-400" />
+          Modo test
+          {testMode && (
+            <span className="text-[10px] bg-orange-900/30 text-orange-400 px-1 py-px rounded">
+              ON
+            </span>
+          )}
+        </span>
+        <ChevronDown
+          className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-slate-700 px-3 pb-3 pt-3 space-y-3">
+          <p className="text-[10px] text-slate-500">
+            En modo test, los emails no se envían realmente. Se simula el
+            envío con IDs ficticios.
+          </p>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-400">Test mode</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={testMode}
+              onClick={() => setTestMode(!testMode)}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                testMode ? "bg-orange-500" : "bg-slate-600"
+              }`}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                  testMode ? "translate-x-4.5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
+          <button
+            onClick={handleTestSend}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-700/50 text-orange-300 text-xs font-medium hover:bg-orange-700/70 transition-colors"
+          >
+            <Send className="size-3.5" />
+            Enviar email de prueba
+          </button>
+          {testResult && (
+            <div className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-[10px] text-slate-400">
+              <Check className="size-3 shrink-0 mt-0.5 text-emerald-400" />
+              {testResult}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3454,6 +4017,18 @@ function ChannelCard({
         }
       : undefined;
 
+  const emailInitialValues: EmailFields | undefined =
+    channel === "email" && metadata
+      ? {
+          host: metadata.host ?? "",
+          port: metadata.port ?? "587",
+          username: metadata.username ?? "",
+          password: metadata.password ?? "",
+          from_address: metadata.from_address ?? "",
+          sender_name: metadata.sender_name ?? "",
+        }
+      : undefined;
+
   return (
     <div
       className={`rounded-xl border bg-slate-800/50 p-5 transition-all ${
@@ -3542,7 +4117,7 @@ function ChannelCard({
                 ) : null}
               </div>
 
-              {/* WhatsApp credential summary when connected */}
+              {/* Channel credential summary when connected */}
               {isConnected &&
                 channel === "whatsapp" &&
                 metadata &&
@@ -3552,11 +4127,27 @@ function ChannelCard({
                     onEdit={() => setShowEditForm(true)}
                   />
                 )}
+              {isConnected &&
+                channel === "email" &&
+                metadata &&
+                !showEditForm && (
+                  <EmailConnectedSummary
+                    metadata={metadata}
+                    onEdit={() => setShowEditForm(true)}
+                  />
+                )}
 
-              {/* Edit form (WhatsApp re-connect) */}
+              {/* Edit form (re-connect) */}
               {showEditForm && channel === "whatsapp" && (
                 <WhatsAppConnectForm
                   initialValues={waInitialValues}
+                  onConnect={handleConnect}
+                  onCancel={() => setShowEditForm(false)}
+                />
+              )}
+              {showEditForm && channel === "email" && (
+                <EmailConnectForm
+                  initialValues={emailInitialValues}
                   onConnect={handleConnect}
                   onCancel={() => setShowEditForm(false)}
                 />
@@ -3567,6 +4158,11 @@ function ChannelCard({
                 <>
                   {channel === "whatsapp" ? (
                     <WhatsAppConnectForm
+                      onConnect={handleConnect}
+                      onCancel={() => setShowConnectForm(false)}
+                    />
+                  ) : channel === "email" ? (
+                    <EmailConnectForm
                       onConnect={handleConnect}
                       onCancel={() => setShowConnectForm(false)}
                     />

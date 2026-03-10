@@ -22,6 +22,8 @@ import { WhatsAppIdentityProvider } from "@/providers/WhatsAppIdentityProvider";
 import { BusinessHoursProvider } from "@/providers/BusinessHoursProvider";
 import { RoutingProvider } from "@/providers/RoutingProvider";
 import { WhatsAppAuditProvider } from "@/providers/WhatsAppAuditProvider";
+import { EmailMessagesProvider } from "@/providers/EmailMessagesProvider";
+import { EmailAuditProvider } from "@/providers/EmailAuditProvider";
 import { CompanyProvider } from "@/providers/CompanyProvider";
 import { UserManagementProvider } from "@/providers/UserManagementProvider";
 import { ProfileProvider } from "@/providers/ProfileProvider";
@@ -79,6 +81,8 @@ export default function RootLayout({
           <BusinessHoursProvider>
           <RoutingProvider>
           <WhatsAppAuditProvider>
+          <EmailMessagesProvider>
+          <EmailAuditProvider>
           <AgentsProvider>
             <FlowsProvider>
               <ToolRegistryProvider>
@@ -106,6 +110,8 @@ export default function RootLayout({
               </ToolRegistryProvider>
             </FlowsProvider>
           </AgentsProvider>
+          </EmailAuditProvider>
+          </EmailMessagesProvider>
           </WhatsAppAuditProvider>
           </RoutingProvider>
           </BusinessHoursProvider>
