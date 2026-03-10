@@ -5,7 +5,8 @@ export type AgentDecisionType =
   | "intent_detection"    // detectIntentWithLLM
   | "tool_selection"      // selectToolWithLLM
   | "tool_call"           // callLLMWithTool
-  | "tool_finalization";  // finalizeToolWithLLM
+  | "tool_finalization"   // finalizeToolWithLLM
+  | "condition_classification"; // classifyConditionWithLLM
 
 /** A single message in the prompt, with content truncated to 2000 chars for storage. */
 export interface SanitizedMessage {
@@ -90,5 +91,11 @@ export const DECISION_TYPE_CONFIG: Record<
     colorClass: "text-orange-400",
     bgClass: "bg-orange-900/20",
     borderClass: "border-orange-800/50",
+  },
+  condition_classification: {
+    label: "Clasificación",
+    colorClass: "text-teal-400",
+    bgClass: "bg-teal-900/20",
+    borderClass: "border-teal-800/50",
   },
 };

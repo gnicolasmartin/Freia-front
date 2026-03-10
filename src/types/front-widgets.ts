@@ -218,6 +218,25 @@ export interface ButtonActionEvent {
   triggeredAt: string;
 }
 
+// --- Calendar booking configuration ---
+
+export interface CalendarBookingConfig {
+  /** Which calendar to show (if empty, shows all active calendars) */
+  calendarId?: string;
+  /** Success message after booking */
+  successMessage?: string;
+  /** Whether to show the resource selector (when calendar has multiple resources) */
+  showResourceSelector?: boolean;
+  /** Whether to allow notes */
+  allowNotes?: boolean;
+}
+
+export const DEFAULT_CALENDAR_BOOKING_CONFIG: CalendarBookingConfig = {
+  showResourceSelector: true,
+  allowNotes: true,
+  successMessage: "Reserva confirmada. Tu código de confirmación es: {{confirmationCode}}",
+};
+
 // --- Stock form configuration ---
 
 export interface StockFormConfig {
@@ -365,6 +384,16 @@ export const WIDGET_CATALOG: WidgetCatalogEntry[] = [
     description: "Botón de acción o disparador de flujo configurable",
     icon: "MousePointerClick",
     requiredPermission: "interact",
+  },
+  // --- Booking ---
+  {
+    type: "calendar_booking",
+    category: "inputs",
+    label: "Reserva de calendario",
+    description: "Widget interactivo para consultar disponibilidad y crear reservas",
+    icon: "CalendarDays",
+    requiredPermission: "interact",
+    requirements: ["Calendario configurado con recursos activos"],
   },
   // --- Stock (ABM) ---
   {

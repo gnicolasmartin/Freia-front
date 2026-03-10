@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus, Pencil, Trash2, Ban, CheckCircle, KeyRound } from "lucide-react";
 import { useUserManagement } from "@/providers/UserManagementProvider";
 import { useCompanies } from "@/providers/CompanyProvider";
+import { useProfiles } from "@/providers/ProfileProvider";
 import { ROLE_CONFIG, USER_STATUS_CONFIG } from "@/types/user-management";
 import type { SystemUser, SystemRole } from "@/types/user-management";
 import UserModal from "./UserModal";
@@ -11,6 +12,7 @@ import UserModal from "./UserModal";
 export default function UsersTab() {
   const { users, createUser, updateUser, deleteUser, resetPassword, toggleUserStatus } = useUserManagement();
   const { getCompany } = useCompanies();
+  const { getProfile } = useProfiles();
 
   const [modal, setModal] = useState<{ open: boolean; editing: SystemUser | null }>({ open: false, editing: null });
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -121,6 +123,7 @@ export default function UsersTab() {
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Email</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Empresa</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Rol</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Perfil</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Estado</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Último login</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">Acciones</th>
@@ -129,7 +132,7 @@ export default function UsersTab() {
           <tbody className="divide-y divide-slate-700/50">
             {filteredUsers.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                   No se encontraron usuarios
                 </td>
               </tr>
@@ -138,6 +141,7 @@ export default function UsersTab() {
                 const roleCfg = ROLE_CONFIG[u.role] ?? ROLE_CONFIG.company_user;
                 const statusCfg = USER_STATUS_CONFIG[u.status];
                 const company = u.companyId ? getCompany(u.companyId) : null;
+                const profile = u.profileId ? getProfile(u.profileId) : null;
                 return (
                   <tr key={u.id} className="hover:bg-slate-800/30">
                     <td className="px-4 py-3 text-white font-medium">{u.name}</td>
@@ -147,6 +151,15 @@ export default function UsersTab() {
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${roleCfg.color} ${roleCfg.bg} border ${roleCfg.border}`}>
                         {roleCfg.label}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {u.role === "root" ? (
+                        <span className="text-slate-500">—</span>
+                      ) : profile ? (
+                        <span className="text-white">{profile.name}</span>
+                      ) : (
+                        <span className="text-slate-500 italic">{u.role === "company_admin" ? "Acceso total" : "Sin perfil"}</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${statusCfg.color} ${statusCfg.bg} border ${statusCfg.border}`}>

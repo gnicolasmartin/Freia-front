@@ -3,13 +3,17 @@
 import { type ReactNode } from "react";
 import { seedDemoCubiertas } from "@/lib/seed-demo-cubiertas";
 import { seedDemoImportador } from "@/lib/seed-demo-importador";
+import { seedDemoRincon } from "@/lib/seed-demo-rincon";
 import type { Company, SystemUser, Profile } from "@/types/user-management";
 
 // ─── Seed user management data (companies, users, profiles) ─────────────────
 
-const USER_MGMT_SEED_KEY = "freia_seed_user_mgmt_v1";
+const USER_MGMT_SEED_KEY = "freia_seed_user_mgmt_v2";
 
 function seedUserManagement(): boolean {
+  // Clean old version sentinel
+  localStorage.removeItem("freia_seed_user_mgmt_v1");
+
   if (localStorage.getItem(USER_MGMT_SEED_KEY)) return false;
 
   const now = new Date().toISOString();
@@ -17,6 +21,7 @@ function seedUserManagement(): boolean {
   const companies: Company[] = [
     { id: "company_cubiertas", name: "Cubiertas Express", status: "active", createdAt: now, updatedAt: now },
     { id: "company_importador", name: "Importador Demo", status: "active", createdAt: now, updatedAt: now },
+    { id: "company_rincon", name: "Quintas El Rincón de Mi Mundo", status: "active", createdAt: now, updatedAt: now },
   ];
 
   const profiles: Profile[] = [
@@ -25,6 +30,20 @@ function seedUserManagement(): boolean {
       name: "Solo lectura",
       companyId: "company_cubiertas",
       permissions: ["dashboard", "agents", "flows", "conversations", "audit"],
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "profile_rincon_admin",
+      name: "Administrador Quintas",
+      companyId: "company_rincon",
+      permissions: [
+        "dashboard", "agents", "agents.create", "agents.edit",
+        "flows", "flows.create", "flows.edit",
+        "calendars", "calendars.create", "calendars.edit", "calendars.delete",
+        "conversations", "leads", "channels", "fronts", "fronts.edit",
+        "settings",
+      ],
       createdAt: now,
       updatedAt: now,
     },
@@ -56,18 +75,26 @@ function seedUserManagement(): boolean {
       role: "company_admin", companyId: "company_importador", profileId: null,
       status: "active", createdAt: now, updatedAt: now, lastLoginAt: null,
     },
+    {
+      id: "5", email: "quintas@freia.ai", password: "quintas123", name: "Quintas El Rincón",
+      role: "company_admin", companyId: "company_rincon", profileId: "profile_rincon_admin",
+      status: "active", createdAt: now, updatedAt: now, lastLoginAt: null,
+    },
   ];
 
-  // Only seed if keys are missing (don't overwrite existing data)
-  if (!localStorage.getItem("freia_companies")) {
-    localStorage.setItem("freia_companies", JSON.stringify(companies));
-  }
-  if (!localStorage.getItem("freia_system_users")) {
-    localStorage.setItem("freia_system_users", JSON.stringify(users));
-  }
-  if (!localStorage.getItem("freia_profiles")) {
-    localStorage.setItem("freia_profiles", JSON.stringify(profiles));
-  }
+  // Merge seed data with existing data (upsert by id)
+  const merge = <T extends { id: string }>(key: string, items: T[]) => {
+    const existing: T[] = (() => {
+      try { return JSON.parse(localStorage.getItem(key) ?? "[]"); } catch { return []; }
+    })();
+    const seedIds = new Set(items.map((i) => i.id));
+    const kept = existing.filter((e) => !seedIds.has(e.id));
+    localStorage.setItem(key, JSON.stringify([...kept, ...items]));
+  };
+
+  merge("freia_companies", companies);
+  merge("freia_system_users", users);
+  merge("freia_profiles", profiles);
 
   localStorage.setItem(USER_MGMT_SEED_KEY, "1");
   console.log("[DemoSeedGate] user management data seeded");
@@ -98,6 +125,13 @@ if (typeof window !== "undefined") {
       if (user?.email === "importador@freia.ai") {
         const seeded = seedDemoImportador();
         console.log("[DemoSeedGate] seedDemoImportador returned:", seeded);
+        if (seeded || userMgmtSeeded) {
+          window.location.reload();
+        }
+      }
+      if (user?.email === "quintas@freia.ai") {
+        const seeded = seedDemoRincon();
+        console.log("[DemoSeedGate] seedDemoRincon returned:", seeded);
         if (seeded || userMgmtSeeded) {
           window.location.reload();
         }

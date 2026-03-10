@@ -44,8 +44,12 @@ import type { WidgetDataError } from "@/hooks/useWidgetData";
 import { exportChartAsPng, exportChartAsCsv } from "@/lib/chart-export";
 import { addFormSubmission, addButtonAction } from "@/lib/form-submissions";
 import { useProducts } from "@/providers/ProductsProvider";
+import { useCalendars } from "@/providers/CalendarsProvider";
 import { generateUniqueCode, attrSignature, nameToKey } from "@/lib/stock-utils";
 import type { Product, ProductVariant, VariantType, Discount } from "@/types/product";
+import type { CalendarBookingConfig } from "@/types/front-widgets";
+import type { Calendar, CalendarResource, AvailableSlot, DayOfWeek } from "@/types/calendar";
+import { DAYS_OF_WEEK, BOOKING_MODE_LABELS } from "@/types/calendar";
 
 // --- Widget size wrapper ---
 
@@ -267,6 +271,8 @@ export function SectionRenderer({
       content = <StockListSection section={section} primaryColor={primaryColor} canInteract={canInteract} />; break;
     case "stock_form":
       content = <StockFormSection section={section} primaryColor={primaryColor} canInteract={canInteract} />; break;
+    case "calendar_booking":
+      content = <CalendarBookingSection section={section} primaryColor={primaryColor} canInteract={canInteract} frontId={frontId} session={session} />; break;
     default:
       return null;
   }
@@ -2855,6 +2861,563 @@ function StockFormSection({
           <h2 className="text-2xl font-bold text-white mb-6 text-center">{section.title}</h2>
         )}
         {formContent}
+      </div>
+    </section>
+  );
+}
+
+// ─── Calendar Booking Section ────────────────────────────────────────────────
+
+const DAY_INDEX_TO_KEY: DayOfWeek[] = [
+  "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+];
+
+function CalendarBookingSection({ section, primaryColor, canInteract, frontId, session }: {
+  section: FrontSection;
+  primaryColor: string;
+  canInteract: boolean;
+  frontId?: string;
+  session?: { visitorId?: string; email?: string; name?: string; role?: string } | null;
+}) {
+  const cfg = (section.config ?? {}) as CalendarBookingConfig;
+  const { calendars, resources, getAvailableSlots, getBookingsByCalendar, addBooking, validateBooking, blockedPeriods, getBlocksByCalendar } = useCalendars();
+
+  // Filter active calendars (optionally pre-filtered by config)
+  const availableCalendars = useMemo(() => {
+    const active = calendars.filter((c) => c.active);
+    if (cfg.calendarId) return active.filter((c) => c.id === cfg.calendarId);
+    return active;
+  }, [calendars, cfg.calendarId]);
+
+  const [selectedCalendarId, setSelectedCalendarId] = useState("");
+  const [selectedResourceId, setSelectedResourceId] = useState("");
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
+  const [selectedEndDate, setSelectedEndDate] = useState("");
+
+  // Contact form
+  const [contactName, setContactName] = useState(session?.name ?? "");
+  const [contactEmail, setContactEmail] = useState(session?.email ?? "");
+  const [contactPhone, setContactPhone] = useState("");
+  const [notes, setNotes] = useState("");
+
+  // States
+  const [step, setStep] = useState<"calendar" | "date" | "slot" | "form" | "success">("calendar");
+  const [errors, setErrors] = useState<string[]>([]);
+  const [confirmationCode, setConfirmationCode] = useState("");
+
+  // Auto-select calendar if only one
+  useEffect(() => {
+    if (availableCalendars.length === 1 && !selectedCalendarId) {
+      setSelectedCalendarId(availableCalendars[0].id);
+      setStep("date");
+    }
+  }, [availableCalendars, selectedCalendarId]);
+
+  const selectedCalendar = calendars.find((c) => c.id === selectedCalendarId);
+  const calendarResources = useMemo(
+    () => resources.filter((r) => r.calendarId === selectedCalendarId && r.active),
+    [resources, selectedCalendarId],
+  );
+  const isHourly = selectedCalendar?.bookingMode === "hourly";
+
+  // Auto-select resource if only one
+  useEffect(() => {
+    if (calendarResources.length === 1 && !selectedResourceId) {
+      setSelectedResourceId(calendarResources[0].id);
+    }
+  }, [calendarResources, selectedResourceId]);
+
+  // Build month grid
+  const monthGrid = useMemo(() => {
+    if (!selectedCalendar) return [];
+    const [year, month] = currentMonth.split("-").map(Number);
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    const startDow = (firstDay.getDay() + 6) % 7; // Monday-based
+
+    const cells: { date: string; day: number; inMonth: boolean; status: "available" | "blocked" | "closed" | "past" }[] = [];
+
+    // Padding before
+    for (let i = 0; i < startDow; i++) {
+      const d = new Date(year, month - 1, -startDow + i + 1);
+      cells.push({ date: d.toISOString().split("T")[0], day: d.getDate(), inMonth: false, status: "closed" });
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+    const calBlocks = getBlocksByCalendar(selectedCalendarId);
+
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      const dateObj = new Date(year, month - 1, d);
+      const dateStr = dateObj.toISOString().split("T")[0];
+      const dayKey = DAY_INDEX_TO_KEY[dateObj.getDay()];
+      const schedule = selectedCalendar.schedule[dayKey];
+
+      let status: "available" | "blocked" | "closed" | "past" = "available";
+      if (dateStr < today) {
+        status = "past";
+      } else if (!schedule?.enabled) {
+        status = "closed";
+      } else {
+        // Check if fully blocked
+        const blocked = calBlocks.some((b) => {
+          if (b.resourceId && selectedResourceId && b.resourceId !== selectedResourceId) return false;
+          const sd = b.startDate;
+          const ed = b.endDate;
+          return dateStr >= sd && dateStr <= ed && !b.startTime; // full-day block
+        });
+        if (blocked) status = "blocked";
+      }
+
+      cells.push({ date: dateStr, day: d, inMonth: true, status });
+    }
+
+    // Padding after
+    const remaining = 7 - (cells.length % 7);
+    if (remaining < 7) {
+      for (let i = 1; i <= remaining; i++) {
+        const d = new Date(year, month, i);
+        cells.push({ date: d.toISOString().split("T")[0], day: d.getDate(), inMonth: false, status: "closed" });
+      }
+    }
+
+    return cells;
+  }, [selectedCalendar, currentMonth, selectedCalendarId, selectedResourceId, getBlocksByCalendar]);
+
+  // Available slots for selected date
+  const slotsForDate = useMemo(() => {
+    if (!selectedDate || !selectedCalendarId || !isHourly) return [];
+    return getAvailableSlots(selectedCalendarId, selectedDate);
+  }, [selectedDate, selectedCalendarId, isHourly, getAvailableSlots]);
+
+  // Filter slots by selected resource
+  const filteredSlots = useMemo(() => {
+    if (!selectedResourceId) return slotsForDate;
+    return slotsForDate.filter((s) => s.resourceId === selectedResourceId);
+  }, [slotsForDate, selectedResourceId]);
+
+  const handleSelectCalendar = (id: string) => {
+    setSelectedCalendarId(id);
+    setSelectedResourceId("");
+    setSelectedDate("");
+    setSelectedSlot(null);
+    setSelectedEndDate("");
+    setStep("date");
+  };
+
+  const handleSelectDate = (date: string) => {
+    setSelectedDate(date);
+    setSelectedSlot(null);
+    setSelectedEndDate(date); // default same day for daily
+    if (isHourly) {
+      setStep("slot");
+    } else {
+      // Daily mode → go to form (can select end date)
+      setStep("form");
+    }
+  };
+
+  const handleSelectSlot = (slot: AvailableSlot) => {
+    setSelectedSlot(slot);
+    if (cfg.showResourceSelector === false || calendarResources.length <= 1) {
+      setSelectedResourceId(slot.resourceId);
+    } else {
+      setSelectedResourceId(slot.resourceId);
+    }
+    setStep("form");
+  };
+
+  const handleSubmitBooking = () => {
+    const errs: string[] = [];
+    if (!contactName.trim()) errs.push("El nombre es obligatorio");
+    if (!selectedCalendarId) errs.push("Seleccioná un calendario");
+
+    const resId = selectedResourceId || calendarResources[0]?.id;
+    if (!resId) errs.push("No hay recursos disponibles");
+
+    if (isHourly && !selectedSlot) errs.push("Seleccioná un horario");
+    if (!isHourly && !selectedDate) errs.push("Seleccioná una fecha");
+
+    if (errs.length > 0) { setErrors(errs); return; }
+
+    // Validate
+    const startTime = selectedSlot?.startTime;
+    const endTime = selectedSlot?.endTime;
+    const endDate = isHourly ? selectedDate : (selectedEndDate || selectedDate);
+
+    const validation = validateBooking(selectedCalendarId, resId, selectedDate, endDate, startTime, endTime);
+    if (!validation.valid) {
+      setErrors([validation.error ?? "Sin disponibilidad para la fecha seleccionada"]);
+      return;
+    }
+
+    const booking = addBooking({
+      calendarId: selectedCalendarId,
+      resourceId: resId,
+      startDate: selectedDate,
+      endDate,
+      startTime,
+      endTime,
+      contactName: contactName.trim(),
+      contactPhone: contactPhone.trim() || undefined,
+      contactEmail: contactEmail.trim() || undefined,
+      notes: (cfg.allowNotes !== false && notes.trim()) ? notes.trim() : undefined,
+      status: "confirmed",
+      source: "front",
+    });
+
+    setConfirmationCode(booking.confirmationCode);
+    setStep("success");
+    setErrors([]);
+  };
+
+  const handleBack = () => {
+    setErrors([]);
+    if (step === "form" && isHourly) setStep("slot");
+    else if (step === "form") setStep("date");
+    else if (step === "slot") setStep("date");
+    else if (step === "date" && availableCalendars.length > 1) setStep("calendar");
+  };
+
+  const handleRestart = () => {
+    setSelectedDate("");
+    setSelectedSlot(null);
+    setSelectedEndDate("");
+    setContactName(session?.name ?? "");
+    setContactEmail(session?.email ?? "");
+    setContactPhone("");
+    setNotes("");
+    setConfirmationCode("");
+    setErrors([]);
+    setStep(availableCalendars.length > 1 ? "calendar" : "date");
+  };
+
+  const prevMonth = () => {
+    const [y, m] = currentMonth.split("-").map(Number);
+    const d = new Date(y, m - 2, 1);
+    setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+  const nextMonth = () => {
+    const [y, m] = currentMonth.split("-").map(Number);
+    const d = new Date(y, m, 1);
+    setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+
+  const monthLabel = (() => {
+    const [y, m] = currentMonth.split("-").map(Number);
+    const months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+    return `${months[m - 1]} ${y}`;
+  })();
+
+  const cellColor = (status: string) => {
+    switch (status) {
+      case "available": return "bg-emerald-900/30 hover:bg-emerald-800/40 text-white cursor-pointer border-emerald-800/30";
+      case "blocked": return "bg-red-900/20 text-red-400/60 border-red-800/20";
+      case "closed": return "bg-slate-800/30 text-slate-600 border-slate-700/20";
+      case "past": return "bg-slate-800/20 text-slate-600 border-slate-700/10";
+      default: return "bg-slate-800/30 text-slate-500 border-slate-700/20";
+    }
+  };
+
+  const inputCls = "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white placeholder-white/30 focus:outline-none focus:ring-1 text-sm";
+
+  if (availableCalendars.length === 0) {
+    return (
+      <section className="py-12 px-4">
+        <div className="max-w-2xl mx-auto text-center">
+          {section.title && <h2 className="text-2xl font-bold text-white mb-4">{section.title}</h2>}
+          <p className="text-white/50 text-sm">No hay calendarios disponibles en este momento.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="py-12 px-4">
+      <div className="max-w-2xl mx-auto">
+        {section.title && (
+          <h2 className="text-2xl font-bold text-white mb-2 text-center">{section.title}</h2>
+        )}
+        {section.content && (
+          <p className="text-white/60 text-sm mb-6 text-center">{section.content}</p>
+        )}
+
+        {errors.length > 0 && (
+          <div className="bg-red-900/20 border border-red-800/50 rounded-lg p-3 mb-4 space-y-1">
+            {errors.map((e, i) => (
+              <p key={i} className="text-sm text-red-400 flex items-center gap-1.5">
+                <AlertCircle className="size-3.5 shrink-0" /> {e}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* Step: Select calendar */}
+        {step === "calendar" && (
+          <div className="space-y-3">
+            <p className="text-white/70 text-sm font-medium mb-3">Seleccioná un calendario</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {availableCalendars.map((cal) => (
+                <button
+                  key={cal.id}
+                  onClick={() => handleSelectCalendar(cal.id)}
+                  className="text-left p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <p className="text-white font-medium text-sm">{cal.name}</p>
+                  {cal.description && <p className="text-white/40 text-xs mt-1">{cal.description}</p>}
+                  <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/60">
+                    {BOOKING_MODE_LABELS[cal.bookingMode].label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Step: Select date (month grid) */}
+        {step === "date" && selectedCalendar && (
+          <div className="space-y-4">
+            {/* Resource selector */}
+            {cfg.showResourceSelector !== false && calendarResources.length > 1 && (
+              <div>
+                <label className="block text-sm text-white/60 mb-1">Recurso</label>
+                <select
+                  className={inputCls}
+                  value={selectedResourceId}
+                  onChange={(e) => { setSelectedResourceId(e.target.value); setSelectedDate(""); }}
+                  style={{ borderColor: `${primaryColor}40` }}
+                >
+                  <option value="">Todos los recursos</option>
+                  {calendarResources.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Month navigation */}
+            <div className="flex items-center justify-between">
+              <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-white/10 text-white/60 transition-colors">
+                <ChevronLeft className="size-5" />
+              </button>
+              <h3 className="text-white font-semibold">{monthLabel}</h3>
+              <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-white/10 text-white/60 transition-colors">
+                <ChevronRight className="size-5" />
+              </button>
+            </div>
+
+            {/* Day headers */}
+            <div className="grid grid-cols-7 gap-1">
+              {DAYS_OF_WEEK.map((d) => (
+                <div key={d.key} className="text-center text-xs text-white/40 font-medium py-1">{d.short}</div>
+              ))}
+              {monthGrid.map((cell, i) => (
+                <button
+                  key={i}
+                  disabled={cell.status !== "available" || !cell.inMonth || !canInteract}
+                  onClick={() => cell.status === "available" && cell.inMonth && handleSelectDate(cell.date)}
+                  className={`aspect-square flex items-center justify-center rounded-lg text-sm border transition-colors ${
+                    cell.inMonth ? cellColor(cell.status) : "text-white/10"
+                  } ${!cell.inMonth ? "pointer-events-none" : ""} ${
+                    cell.date === selectedDate ? "" : ""
+                  } disabled:cursor-not-allowed`}
+                  style={cell.date === selectedDate ? { outlineColor: primaryColor, outlineWidth: 2, outlineStyle: "solid" } : undefined}
+                >
+                  {cell.day}
+                </button>
+              ))}
+            </div>
+
+            {/* Legend */}
+            <div className="flex items-center gap-4 justify-center text-xs text-white/40">
+              <span className="flex items-center gap-1"><span className="size-2.5 rounded bg-emerald-700/60" /> Disponible</span>
+              <span className="flex items-center gap-1"><span className="size-2.5 rounded bg-red-800/40" /> Bloqueado</span>
+              <span className="flex items-center gap-1"><span className="size-2.5 rounded bg-slate-700/40" /> Cerrado</span>
+            </div>
+
+            {availableCalendars.length > 1 && (
+              <button onClick={handleBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+                &larr; Cambiar calendario
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Step: Select time slot (hourly) */}
+        {step === "slot" && isHourly && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <button onClick={handleBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+                &larr; Cambiar fecha
+              </button>
+              <p className="text-white/70 text-sm">{selectedDate}</p>
+            </div>
+
+            {filteredSlots.length === 0 ? (
+              <p className="text-center text-white/40 text-sm py-8">No hay horarios disponibles para esta fecha.</p>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {filteredSlots.map((slot, i) => {
+                  const resource = calendarResources.find((r) => r.id === slot.resourceId);
+                  return (
+                    <button
+                      key={i}
+                      disabled={!canInteract}
+                      onClick={() => handleSelectSlot(slot)}
+                      className={`p-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors text-center disabled:opacity-40 disabled:cursor-not-allowed ${
+                        selectedSlot?.startTime === slot.startTime && selectedSlot?.resourceId === slot.resourceId ? "" : ""
+                      }`}
+                      style={selectedSlot?.startTime === slot.startTime && selectedSlot?.resourceId === slot.resourceId ? { borderColor: primaryColor, outlineColor: primaryColor, outlineWidth: 2, outlineStyle: "solid" } : undefined}
+                    >
+                      <p className="text-white font-medium text-sm">{slot.startTime} - {slot.endTime}</p>
+                      {calendarResources.length > 1 && resource && (
+                        <p className="text-white/40 text-xs mt-0.5">{resource.name}</p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step: Contact form */}
+        {step === "form" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <button onClick={handleBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+                &larr; Volver
+              </button>
+              <div className="text-right text-sm text-white/50">
+                <p>{selectedDate}{isHourly && selectedSlot ? ` · ${selectedSlot.startTime} - ${selectedSlot.endTime}` : ""}</p>
+                {!isHourly && calendarResources.length > 0 && (
+                  <p className="text-xs text-white/30">
+                    {selectedResourceId ? calendarResources.find((r) => r.id === selectedResourceId)?.name : "Cualquier recurso"}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* End date for daily mode */}
+            {!isHourly && (
+              <div>
+                <label className="block text-sm text-white/60 mb-1">Fecha de salida</label>
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={selectedEndDate}
+                  min={selectedDate}
+                  onChange={(e) => setSelectedEndDate(e.target.value)}
+                  style={{ borderColor: `${primaryColor}40` }}
+                />
+              </div>
+            )}
+
+            {/* Resource selector for daily mode if not pre-selected */}
+            {!isHourly && cfg.showResourceSelector !== false && calendarResources.length > 1 && !selectedResourceId && (
+              <div>
+                <label className="block text-sm text-white/60 mb-1">Recurso *</label>
+                <select
+                  className={inputCls}
+                  value={selectedResourceId}
+                  onChange={(e) => setSelectedResourceId(e.target.value)}
+                  style={{ borderColor: `${primaryColor}40` }}
+                >
+                  <option value="">Seleccionar...</option>
+                  {calendarResources.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm text-white/60 mb-1">Nombre *</label>
+                <input
+                  className={inputCls}
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  placeholder="Tu nombre"
+                  style={{ borderColor: `${primaryColor}40` }}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-white/60 mb-1">Email</label>
+                <input
+                  className={inputCls}
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                  placeholder="tu@email.com"
+                  style={{ borderColor: `${primaryColor}40` }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm text-white/60 mb-1">Teléfono</label>
+              <input
+                className={inputCls}
+                value={contactPhone}
+                onChange={(e) => setContactPhone(e.target.value)}
+                placeholder="+54 9 ..."
+                style={{ borderColor: `${primaryColor}40` }}
+              />
+            </div>
+
+            {cfg.allowNotes !== false && (
+              <div>
+                <label className="block text-sm text-white/60 mb-1">Notas</label>
+                <textarea
+                  className={`${inputCls} resize-none`}
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Opcional"
+                  style={{ borderColor: `${primaryColor}40` }}
+                />
+              </div>
+            )}
+
+            <button
+              onClick={handleSubmitBooking}
+              disabled={!canInteract}
+              className="w-full py-2.5 rounded-lg text-white font-medium text-sm transition-opacity hover:opacity-90 disabled:opacity-40"
+              style={{ backgroundColor: primaryColor }}
+            >
+              Confirmar reserva
+            </button>
+
+            {!canInteract && (
+              <div className="flex items-center justify-center gap-2 text-white/30 text-xs">
+                <Lock className="size-3.5" />
+                Se requieren permisos para realizar reservas
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step: Success */}
+        {step === "success" && (
+          <div className="text-center py-8 space-y-4">
+            <div className="size-16 rounded-full mx-auto flex items-center justify-center" style={{ backgroundColor: `${primaryColor}20` }}>
+              <CheckCircle className="size-8" style={{ color: primaryColor }} />
+            </div>
+            <p className="text-white font-medium">
+              {(cfg.successMessage ?? "Reserva confirmada. Tu código de confirmación es: {{confirmationCode}}").replace(
+                "{{confirmationCode}}",
+                confirmationCode,
+              )}
+            </p>
+            <p className="text-white/40 text-sm font-mono">{confirmationCode}</p>
+            <button
+              onClick={handleRestart}
+              className="text-sm px-4 py-2 rounded-lg border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+            >
+              Hacer otra reserva
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );

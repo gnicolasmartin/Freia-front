@@ -46,7 +46,7 @@ export default function UserModal({ editing, onSave, onClose }: UserModalProps) 
   const activeCompanies = companies.filter((c) => c.status === "active");
   const companyProfiles = companyId ? getProfilesByCompany(companyId) : [];
   const showCompany = role !== "root";
-  const showProfile = role === "company_user";
+  const showProfile = role !== "root"; // Both company_admin and company_user can have profiles
 
   const canSave =
     name.trim() &&
@@ -62,7 +62,7 @@ export default function UserModal({ editing, onSave, onClose }: UserModalProps) 
       name: name.trim(),
       role,
       companyId: role === "root" ? null : companyId || null,
-      profileId: role === "company_user" ? profileId || null : null,
+      profileId: role !== "root" ? profileId || null : null,
     });
   };
 
@@ -176,7 +176,7 @@ export default function UserModal({ editing, onSave, onClose }: UserModalProps) 
                 onChange={(e) => setProfileId(e.target.value)}
                 className="w-full rounded-lg border border-slate-600 bg-slate-800/50 px-4 py-2.5 text-white focus:border-[#dd7430] focus:ring-2 focus:ring-[#dd7430]/20 outline-none"
               >
-                <option value="">Sin perfil (sin permisos)</option>
+                <option value="">{role === "company_admin" ? "Sin perfil (acceso total)" : "Sin perfil (sin permisos)"}</option>
                 {companyProfiles.map((p) => (
                   <option key={p.id} value={p.id}>{p.name} ({p.permissions.length} permisos)</option>
                 ))}

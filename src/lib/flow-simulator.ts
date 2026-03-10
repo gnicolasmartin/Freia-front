@@ -20,6 +20,7 @@ import {
   callLLMWithTool,
   finalizeToolWithLLM,
   buildConversationHistory,
+  classifyConditionWithLLM,
 } from "./agent-flow-coordinator";
 
 // --- Types ---
@@ -265,12 +266,220 @@ const TOOL_MOCK_RESPONSES: Record<
     no_stock: { status: "ok", data: { message: "Pedido fuera del período de devolución" } },
     cancelled: { status: "cancelled", data: { message: "Reembolso cancelado" } },
   },
+  create_booking: {
+    success: { status: "confirmed", data: { bookingId: "BK-001", confirmationCode: "BK-A3F7", confirmedAt: "2025-01-20T10:00:00Z" } },
+    error: { status: "error", data: { message: "No se pudo crear la reserva: conflicto de horario" } },
+    no_stock: { status: "unavailable", data: { message: "Sin disponibilidad para la fecha y recurso solicitados" } },
+    cancelled: { status: "cancelled", data: { message: "Reserva cancelada" } },
+  },
+  search_resources: {
+    success: { status: "found", data: { matches: [{ resourceName: "Recurso 1", available: true }], suggestions: [], reasoning: "Recurso encontrado" } },
+    error: { status: "error", data: { message: "Error al buscar recursos" } },
+    no_stock: { status: "not_found", data: { matches: [], suggestions: [], reasoning: "No se encontraron recursos que coincidan" } },
+    cancelled: { status: "cancelled", data: { message: "Búsqueda cancelada" } },
+  },
 };
+
+function getCalendarToolResponse(
+  tool: string,
+  params: Record<string, unknown>,
+): { status: string; data: Record<string, unknown> } | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const calendars = JSON.parse(localStorage.getItem("freia_calendars") || "[]");
+    const resources = JSON.parse(localStorage.getItem("freia_calendar_resources") || "[]");
+    const bookingsData = JSON.parse(localStorage.getItem("freia_bookings") || "[]");
+    const blocks = JSON.parse(localStorage.getItem("freia_calendar_blocks") || "[]");
+    const rules = JSON.parse(localStorage.getItem("freia_calendar_min_stay_rules") || "[]");
+
+    if (calendars.length === 0) return null; // fallback to static mocks
+
+    // Dynamically import to avoid circular deps — functions are pure
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getAvailableSlots, getAvailableSlotsForRange, searchResources, findNearestAvailability, generateConfirmationCode } = require("@/lib/calendar-availability");
+
+    if (tool === "calendar_check") {
+      const calendar = calendars.find((c: { id: string }) => c.id === params.calendarId) || calendars[0];
+      if (!calendar) return null;
+
+      const calResources = resources.filter((r: { calendarId: string; active: boolean }) => r.calendarId === calendar.id && r.active);
+      const calBookings = bookingsData.filter((b: { calendarId: string }) => b.calendarId === calendar.id);
+      const calBlocks = blocks.filter((b: { calendarId: string }) => b.calendarId === calendar.id);
+      const calRules = rules.filter((r: { calendarId: string }) => r.calendarId === calendar.id);
+
+      // Support date ranges: startDate+endDate or fallback to date
+      const startDate = (params.startDate || params.date) as string | undefined;
+      const endDate = params.endDate as string | undefined;
+      const wantNearest = params.findNearest === true || params.findNearest === "true";
+
+      // findNearest mode: scan forward to find nearest availability
+      if (wantNearest) {
+        const refDate = startDate || new Date().toISOString().slice(0, 10);
+        const nearest = findNearestAvailability(calendar, calResources, calBookings, calBlocks, calRules, refDate);
+        return {
+          status: nearest.length > 0 ? "nearest_found" : "unavailable",
+          data: {
+            nearestAvailability: nearest,
+            referenceDate: refDate,
+            calendarName: calendar.name,
+          },
+        };
+      }
+
+      // If no dates provided, return helpful guidance instead of crashing
+      if (!startDate) {
+        const resourceNames = calResources.map((r: { name: string }) => r.name).join(", ");
+        return {
+          status: "needs_info",
+          data: {
+            message: "Para consultar disponibilidad necesito al menos una fecha o rango de fechas. Por ejemplo: una fecha específica, un mes (febrero), o un rango (del 10 al 20 de enero).",
+            calendarName: calendar.name,
+            availableResources: resourceNames,
+          },
+        };
+      }
+
+      if (endDate && endDate !== startDate) {
+        // Range query
+        const rangeResults = getAvailableSlotsForRange(calendar, calResources, calBookings, calBlocks, calRules, startDate, endDate);
+        const hasAvailability = rangeResults.some((r: { availableDates: string[] }) => r.availableDates.length > 0);
+
+        // Auto-suggest nearest dates when range has no availability
+        let nearestAvailability = undefined;
+        if (!hasAvailability) {
+          nearestAvailability = findNearestAvailability(calendar, calResources, calBookings, calBlocks, calRules, endDate);
+        }
+
+        return {
+          status: hasAvailability ? "available" : "unavailable",
+          data: {
+            availableDates: rangeResults,
+            startDate, endDate,
+            calendarName: calendar.name,
+            ...(nearestAvailability ? { nearestAvailability } : {}),
+          },
+        };
+      }
+
+      // Single date query (backward compatible)
+      const slots = getAvailableSlots(calendar, calResources, calBookings, calBlocks, calRules, startDate, params.duration as number | undefined);
+      return {
+        status: slots.length > 0 ? "available" : "unavailable",
+        data: { slots, date: startDate, calendarName: calendar.name },
+      };
+    }
+
+    if (tool === "search_resources") {
+      const calendar = calendars.find((c: { id: string }) => c.id === params.calendarId) || calendars[0];
+      if (!calendar) return null;
+      const calResources = resources.filter((r: { calendarId: string }) => r.calendarId === calendar.id);
+
+      // If no search criteria at all, return all resources as suggestions
+      const hasAnyCriteria = params.query || params.minCapacity || params.startDate || params.requiredFeatures;
+      if (!hasAnyCriteria) {
+        const resourceList = calResources
+          .filter((r: { active: boolean }) => r.active)
+          .map((r: { name: string; description?: string; metadata?: Record<string, string> }) => ({
+            resource: r,
+            available: true,
+            capacityMatch: true,
+            featureMatches: [],
+            missingFeatures: [],
+          }));
+        return {
+          status: "found",
+          data: {
+            matches: resourceList,
+            suggestions: [],
+            message: "Estas son todas las quintas disponibles. ¿Tenés algún requerimiento específico (cantidad de personas, amenities, fechas)?",
+          },
+        };
+      }
+
+      const calBookings = bookingsData.filter((b: { calendarId: string }) => b.calendarId === calendar.id);
+      const calBlocks = blocks.filter((b: { calendarId: string }) => b.calendarId === calendar.id);
+      const calRules = rules.filter((r: { calendarId: string }) => r.calendarId === calendar.id);
+
+      const requiredFeatures = params.requiredFeatures
+        ? (params.requiredFeatures as string).split(",").map((f: string) => f.trim())
+        : undefined;
+
+      const result = searchResources(calendar, calResources, calBookings, calBlocks, calRules, {
+        minCapacity: params.minCapacity as number | undefined,
+        startDate: params.startDate as string | undefined,
+        endDate: params.endDate as string | undefined,
+        requiredFeatures,
+        query: params.query as string | undefined,
+      });
+
+      const status = result.matches.length > 0 ? "found" : result.suggestions.length > 0 ? "partial" : "not_found";
+      return { status, data: { ...result } };
+    }
+
+    if (tool === "create_booking") {
+      const calendar = calendars.find((c: { id: string }) => c.id === params.calendarId);
+      if (!calendar) return { status: "error", data: { message: "Calendario no encontrado" } };
+
+      const resource = resources.find((r: { id: string }) => r.id === params.resourceId);
+      if (!resource) return { status: "error", data: { message: "Recurso no encontrado" } };
+
+      const code = generateConfirmationCode();
+      const now = new Date().toISOString();
+
+      // Compute endTime for hourly mode
+      let endTime: string | undefined;
+      if (calendar.bookingMode === "hourly" && params.time) {
+        const [h, m] = (params.time as string).split(":").map(Number);
+        const endMins = h * 60 + m + (calendar.slotDurationMinutes || 60);
+        endTime = `${String(Math.floor(endMins / 60)).padStart(2, "0")}:${String(endMins % 60).padStart(2, "0")}`;
+      }
+
+      const newBooking = {
+        id: crypto.randomUUID(),
+        calendarId: params.calendarId,
+        resourceId: params.resourceId,
+        startDate: params.date,
+        endDate: params.endDate || params.date,
+        startTime: params.time || undefined,
+        endTime,
+        contactName: params.contactName || "Contacto vía agente",
+        contactPhone: params.contactPhone || undefined,
+        notes: params.notes || undefined,
+        status: "confirmed",
+        confirmationCode: code,
+        source: "flow",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const existing = JSON.parse(localStorage.getItem("freia_bookings") || "[]");
+      existing.push(newBooking);
+      localStorage.setItem("freia_bookings", JSON.stringify(existing));
+
+      return {
+        status: "confirmed",
+        data: { bookingId: newBooking.id, confirmationCode: code, confirmedAt: now },
+      };
+    }
+  } catch {
+    // Silently fall through to static mocks
+  }
+
+  return null;
+}
 
 function getToolMockResponse(
   tool: string,
-  outcome: ToolMockOutcome
+  outcome: ToolMockOutcome,
+  params?: Record<string, unknown>,
 ): { status: string; data: Record<string, unknown> } {
+  // Try real calendar data for booking tools
+  if (outcome === "success" && (tool === "calendar_check" || tool === "create_booking" || tool === "search_resources") && params) {
+    const calResponse = getCalendarToolResponse(tool, params);
+    if (calResponse) return calResponse;
+  }
+
   const toolMocks = TOOL_MOCK_RESPONSES[tool];
   if (toolMocks) return toolMocks[outcome];
 
@@ -285,6 +494,171 @@ function getToolMockResponse(
     case "cancelled":
       return { status: "cancelled", data: { message: "Operación cancelada" } };
   }
+}
+
+// --- Format tool results as readable chat messages ---
+
+interface NearestResult {
+  resourceName: string;
+  nearestDates: string[];
+  daysAway: number;
+}
+
+function formatNearestAvailability(
+  nearest: NearestResult[],
+  referenceDate: string,
+  calendarName: string,
+): string | null {
+  if (nearest.length === 0) return null;
+  const lines: string[] = [];
+  if (calendarName) {
+    lines.push(`📅 *${calendarName}* — Disponibilidad más cercana desde ${referenceDate}:\n`);
+  } else {
+    lines.push("💡 *Disponibilidad más cercana:*\n");
+  }
+  for (const r of nearest) {
+    const first = r.nearestDates[0];
+    const last = r.nearestDates[r.nearestDates.length - 1];
+    const rangeStr = first === last ? first : `${first} al ${last}`;
+    const awayStr = r.daysAway === 0
+      ? "(desde hoy)"
+      : `(en ${r.daysAway} día${r.daysAway > 1 ? "s" : ""})`;
+    lines.push(`✅ *${r.resourceName}*: ${rangeStr} ${awayStr} — ${r.nearestDates.length} día${r.nearestDates.length > 1 ? "s" : ""} disponible${r.nearestDates.length > 1 ? "s" : ""}`);
+  }
+  return lines.join("\n");
+}
+
+function formatToolResultForChat(
+  tool: string,
+  response: { status: string; data: Record<string, unknown> },
+): string | null {
+  if (tool === "calendar_check") {
+    // needs_info: tool couldn't run because no dates provided
+    if (response.status === "needs_info") {
+      return String(response.data.message || "Necesito más información para consultar disponibilidad.");
+    }
+
+    // nearest_found: findNearest mode result
+    if (response.status === "nearest_found" && response.data.nearestAvailability) {
+      return formatNearestAvailability(
+        response.data.nearestAvailability as NearestResult[],
+        response.data.referenceDate as string,
+        response.data.calendarName as string,
+      );
+    }
+
+    // Range query result
+    if (response.data.availableDates && Array.isArray(response.data.availableDates)) {
+      const calName = response.data.calendarName as string || "";
+      const rangeStart = response.data.startDate as string || "";
+      const rangeEnd = response.data.endDate as string || "";
+      const resources = response.data.availableDates as { resourceId: string; resourceName: string; availableDates: string[]; blockedDates: string[]; minStayIssues?: string[] }[];
+
+      const lines: string[] = [];
+      if (calName) lines.push(`📅 *${calName}* — Disponibilidad del ${rangeStart} al ${rangeEnd}:\n`);
+
+      for (const r of resources) {
+        const total = r.availableDates.length + r.blockedDates.length;
+        if (r.availableDates.length === total) {
+          lines.push(`✅ *${r.resourceName}*: Disponible todos los días (${total} días)`);
+        } else if (r.availableDates.length === 0) {
+          lines.push(`❌ *${r.resourceName}*: Sin disponibilidad en este período`);
+        } else {
+          lines.push(`⚠️ *${r.resourceName}*: Disponible ${r.availableDates.length}/${total} días`);
+          if (r.availableDates.length <= 5) {
+            lines.push(`   Fechas: ${r.availableDates.join(", ")}`);
+          }
+        }
+        if (r.minStayIssues && r.minStayIssues.length > 0) {
+          lines.push(`   ⚠️ ${r.minStayIssues.join("; ")}`);
+        }
+      }
+
+      // Append nearest availability suggestion if range had no availability
+      if (response.data.nearestAvailability && Array.isArray(response.data.nearestAvailability)) {
+        const nearestLines = formatNearestAvailability(
+          response.data.nearestAvailability as NearestResult[],
+          rangeEnd || rangeStart,
+          "",
+        );
+        if (nearestLines) {
+          lines.push("");
+          lines.push(nearestLines);
+        }
+      }
+
+      return lines.join("\n");
+    }
+
+    // Single date query
+    if (response.data.slots && Array.isArray(response.data.slots)) {
+      const date = response.data.date as string || "";
+      const slots = response.data.slots as { resourceName: string; date: string; startTime?: string; endTime?: string }[];
+      if (slots.length === 0) {
+        return `❌ Sin disponibilidad para el ${date}.`;
+      }
+      const grouped = new Map<string, string[]>();
+      for (const s of slots) {
+        const times = grouped.get(s.resourceName) || [];
+        if (s.startTime) times.push(`${s.startTime}-${s.endTime}`);
+        grouped.set(s.resourceName, times);
+      }
+      const lines = [`📅 Disponibilidad para el ${date}:\n`];
+      for (const [name, times] of grouped) {
+        lines.push(times.length > 0 ? `✅ *${name}*: ${times.join(", ")}` : `✅ *${name}*: Disponible`);
+      }
+      return lines.join("\n");
+    }
+  }
+
+  if (tool === "search_resources") {
+    const matches = response.data.matches as { resource: { name: string; description?: string }; availableDates?: string[]; totalDatesInRange?: number; featureMatches?: string[]; reason?: string }[] | undefined;
+    const suggestions = response.data.suggestions as { resource: { name: string }; reason?: string }[] | undefined;
+    const message = response.data.message as string | undefined;
+
+    const lines: string[] = [];
+
+    if (matches && matches.length > 0) {
+      lines.push("🔍 *Quintas que coinciden con tu búsqueda:*\n");
+      for (const m of matches) {
+        let line = `✅ *${m.resource.name}*`;
+        if (m.resource.description) line += ` — ${m.resource.description}`;
+        if (m.availableDates && m.totalDatesInRange) {
+          line += ` (${m.availableDates.length}/${m.totalDatesInRange} días disponibles)`;
+        }
+        lines.push(line);
+      }
+    }
+
+    if (suggestions && suggestions.length > 0 && (!matches || matches.length === 0)) {
+      lines.push("💡 *No encontré una coincidencia exacta, pero estas opciones podrían interesarte:*\n");
+      for (const s of suggestions) {
+        lines.push(`• *${s.resource.name}*${s.reason ? ` — ${s.reason}` : ""}`);
+      }
+    }
+
+    if (message) {
+      lines.push(message);
+    }
+
+    if (lines.length === 0 && response.status === "not_found") {
+      return "No encontré quintas que coincidan con esos criterios. ¿Querés ajustar tu búsqueda?";
+    }
+
+    return lines.length > 0 ? lines.join("\n") : null;
+  }
+
+  if (tool === "create_booking") {
+    if (response.status === "confirmed") {
+      const code = response.data.confirmationCode as string || "";
+      return `✅ *¡Reserva confirmada!*\nTu código de confirmación es: *${code}*`;
+    }
+    if (response.status === "error") {
+      return `❌ ${response.data.message || "No se pudo crear la reserva."}`;
+    }
+  }
+
+  return null;
 }
 
 // --- AI reasoning mock generators ---
@@ -807,10 +1181,20 @@ function evaluateCondition(
     case "exists":
       return value !== undefined && value !== null && value !== "";
     case "matches": {
-      // Check if the value contains any of the pipe-separated keywords
+      // Check if the value contains any of the pipe-separated keywords.
+      // Short keywords (≤3 chars) use word-boundary matching to avoid
+      // false positives like "no" inside "cercano" or "enero".
       const keywords = (rule.value ?? "").split("|").map((s) => s.trim().toLowerCase());
       const actual = String(value ?? "").toLowerCase();
-      return keywords.some((kw) => kw && actual.includes(kw));
+      return keywords.some((kw) => {
+        if (!kw) return false;
+        if (kw.length <= 3) {
+          // Word-boundary match for short keywords
+          const re = new RegExp(`(?:^|\\s|[,;.!?¿¡])${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|\\s|[,;.!?¿¡])`, "i");
+          return re.test(actual);
+        }
+        return actual.includes(kw);
+      });
     }
     default:
       return false;
@@ -1185,6 +1569,37 @@ export async function stepSimulation(
         };
       });
 
+      // Hybrid mode: if no keyword match, ask LLM to classify
+      if (matchedIndex === null
+        && options?.agent?.mode === "hybrid"
+        && options?.agent
+        && options?.agentApiKey
+        && rules.length > 0) {
+        try {
+          const ruleLabels = rules.map((r, i) => ({ label: (r as ConditionRule).label || `Opción ${i + 1}`, index: i }));
+          const llmClass = await classifyConditionWithLLM(
+            String(state.vars[rules[0]?.variable ?? ""] ?? ""),
+            ruleLabels,
+            options.agent,
+            options.agentApiKey,
+            options.onAgentDecision
+              ? (d) => options.onAgentDecision!({ ...d, nodeId: node.id, nodeType: node.type })
+              : undefined,
+          );
+          if (llmClass.matchedIndex !== null && llmClass.matchedIndex >= 0 && llmClass.matchedIndex < rules.length && llmClass.confidence >= 0.4) {
+            matchedIndex = llmClass.matchedIndex;
+            matchedHandle = `rule-${llmClass.matchedIndex}`;
+            // Update eval results to reflect LLM decision
+            evalResults[llmClass.matchedIndex] = {
+              ...evalResults[llmClass.matchedIndex],
+              result: true,
+            };
+          }
+        } catch {
+          // Fall through to default
+        }
+      }
+
       if (!matchedHandle) {
         matchedHandle = "default";
       }
@@ -1349,7 +1764,7 @@ export async function stepSimulation(
 
               // CA3: Simulate tool execution with LLM-generated params
               const llmOutcome = options?.toolMockOutcome ?? "success";
-              const mockResponse = getToolMockResponse(tool, llmOutcome);
+              const mockResponse = getToolMockResponse(tool, llmOutcome, llmParams);
               const mockDuration = 120 + Math.floor(Math.random() * 380);
               const toolResult = { status: mockResponse.status, ...mockResponse.data };
 
@@ -1457,7 +1872,7 @@ export async function stepSimulation(
 
       // --- Standard mock execution path (flow-driven or hybrid fallback) ---
       const outcome = options?.toolMockOutcome ?? "success";
-      const mockResponse = getToolMockResponse(tool, outcome);
+      const mockResponse = getToolMockResponse(tool, outcome, params);
       const mockDuration = 120 + Math.floor(Math.random() * 380); // 120-500ms
 
       // CA3: Create and complete execution log
@@ -1510,6 +1925,15 @@ export async function stepSimulation(
       const routeHandle = outcome === "error" ? "error" : "success";
       const nextId = findNextNodeId(node.id, edges, routeHandle);
       const toolMsgs = [...state.messages, toolMsg];
+
+      // Auto-generate readable bot message for calendar/search tools (non-hybrid fallback)
+      if (outcome !== "error") {
+        const readable = formatToolResultForChat(tool, mockResponse);
+        if (readable) {
+          toolMsgs.push(makeMessage("bot", readable, node.id, "toolcall"));
+        }
+      }
+
       if (!nextId) {
         toolMsgs.push(makeErrorMessage(`El nodo "${label}" no tiene conexión de salida`, "BROKEN_EDGE", node.id, node.type, label));
       }

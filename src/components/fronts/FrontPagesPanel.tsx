@@ -29,6 +29,7 @@ import {
   Braces,
   BarChart,
   PieChart,
+  CalendarDays,
 } from "lucide-react";
 import { useFronts } from "@/providers/FrontsProvider";
 import { useAgents } from "@/providers/AgentsProvider";
@@ -63,6 +64,7 @@ const SECTION_ICONS: Record<FrontSectionType, React.FC<{ className?: string }>> 
   button_cta: MousePointerClick,
   stock_list: Package,
   stock_form: PackagePlus,
+  calendar_booking: CalendarDays,
 };
 
 export default function FrontPagesPanel({ front }: FrontPagesPanelProps) {

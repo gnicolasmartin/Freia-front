@@ -112,8 +112,21 @@ export const TOOL_PARAM_SCHEMAS: Record<string, ToolParamDef[]> = {
     { name: "assignee", label: "Asignado a", type: "string" },
   ],
   calendar_check: [
-    { name: "date", label: "Fecha", type: "date", required: true },
+    { name: "calendarId", label: "ID Calendario", type: "string" },
+    { name: "startDate", label: "Fecha inicio", type: "date" },
+    { name: "endDate", label: "Fecha fin (rango)", type: "date" },
+    { name: "date", label: "Fecha (alias)", type: "date" },
+    { name: "findNearest", label: "Buscar más cercana", type: "boolean" },
     { name: "duration", label: "Duración (min)", type: "number" },
+    { name: "resourceId", label: "ID Recurso", type: "string" },
+  ],
+  search_resources: [
+    { name: "calendarId", label: "ID Calendario", type: "string" },
+    { name: "query", label: "Búsqueda", type: "string" },
+    { name: "minCapacity", label: "Capacidad mínima", type: "number" },
+    { name: "startDate", label: "Fecha inicio", type: "date" },
+    { name: "endDate", label: "Fecha fin", type: "date" },
+    { name: "requiredFeatures", label: "Features requeridos", type: "string" },
   ],
   knowledge_search: [
     { name: "query", label: "Consulta", type: "string", required: true },
@@ -132,6 +145,16 @@ export const TOOL_PARAM_SCHEMAS: Record<string, ToolParamDef[]> = {
     { name: "orderNumber", label: "Nro. de pedido", type: "string", required: true },
     { name: "amount", label: "Monto", type: "number", required: true },
     { name: "reason", label: "Motivo", type: "string" },
+  ],
+  create_booking: [
+    { name: "calendarId", label: "ID Calendario", type: "string" },
+    { name: "resourceId", label: "ID Recurso", type: "string" },
+    { name: "date", label: "Fecha inicio", type: "date" },
+    { name: "endDate", label: "Fecha fin", type: "date" },
+    { name: "time", label: "Hora", type: "string" },
+    { name: "contactName", label: "Nombre contacto", type: "string" },
+    { name: "contactPhone", label: "Teléfono", type: "string" },
+    { name: "notes", label: "Notas", type: "string" },
   ],
 };
 

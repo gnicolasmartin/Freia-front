@@ -39,7 +39,20 @@ export function ToolRegistryProvider({ children }: { children: ReactNode }) {
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as ToolDefinition[];
-        setTools(parsed);
+        // Always refresh builtin tool schemas from DEFAULT_TOOLS so code
+        // changes (e.g. removing required flags) take effect even when
+        // the user has stale data in localStorage.
+        const builtinIds = new Set(DEFAULT_TOOLS.map((t) => t.id));
+        const customTools = parsed.filter((t) => !builtinIds.has(t.id));
+        // For builtins: use latest DEFAULT_TOOLS definition but preserve
+        // any user-added versions array from the stored copy.
+        const refreshedBuiltins = DEFAULT_TOOLS.map((def) => {
+          const prev = parsed.find((t) => t.id === def.id);
+          return prev
+            ? { ...def, versions: prev.versions ?? [] }
+            : def;
+        });
+        setTools([...refreshedBuiltins, ...customTools]);
       } catch {
         // Corrupted data — seed with defaults
         setTools(DEFAULT_TOOLS);

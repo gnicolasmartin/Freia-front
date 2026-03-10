@@ -20,7 +20,7 @@ export function usePermissions() {
     isCompanyAdmin,
     permissions,
     can: (perm: ModulePermission) => {
-      if (isRoot || isCompanyAdmin) return true;
+      if (isRoot) return true;
       return hasModulePermission(permissions, perm);
     },
     canAccessModule: (mod: TopLevelModule) => canAccessModule(role, permissions, mod),

@@ -24,6 +24,7 @@ import {
   Menu,
   X,
   Package,
+  CalendarDays,
   Globe,
 } from "lucide-react";
 import { useState } from "react";
@@ -51,6 +52,7 @@ export default function Sidebar() {
     { name: "Conversaciones",    href: "/conversations", icon: MessageSquare,   moduleKey: "conversations" },
     { name: "Leads",             href: "/leads",         icon: Target,          moduleKey: "leads" },
     { name: "Stock / Productos", href: "/stock",         icon: Package,         moduleKey: "stock" },
+    { name: "Calendarios",       href: "/calendars",     icon: CalendarDays,    moduleKey: "calendars" },
     { name: "Políticas",         href: "/policies",      icon: Shield,          moduleKey: "policies" },
     { name: "Auditoría",         href: "/audit",         icon: ClipboardList,   moduleKey: "audit" },
     { name: "Canales",           href: "/channels",      icon: Radio,           moduleKey: "channels" },

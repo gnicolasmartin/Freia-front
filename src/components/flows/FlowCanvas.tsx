@@ -107,13 +107,20 @@ function wouldCreateCycle(
   return false;
 }
 
-/** Detect cycles in the existing graph. Returns set of node IDs involved. */
+/**
+ * Detect infinite cycles in the existing graph. Returns set of node IDs involved.
+ * Cycles that pass through an "ask" node are allowed (the ask pauses for user
+ * input, making the loop controlled rather than infinite).
+ */
 function detectCycles(nodes: Node[], edges: Edge[]): Set<string> {
   const adjacency = new Map<string, string[]>();
   for (const node of nodes) adjacency.set(node.id, []);
   for (const edge of edges) {
     adjacency.get(edge.source)?.push(edge.target);
   }
+
+  const nodeTypeMap = new Map<string, string>();
+  for (const node of nodes) nodeTypeMap.set(node.id, node.type ?? "");
 
   const WHITE = 0,
     GRAY = 1,
@@ -129,9 +136,16 @@ function detectCycles(nodes: Node[], edges: Edge[]): Set<string> {
 
     for (const neighbor of adjacency.get(nodeId) || []) {
       if (color.get(neighbor) === GRAY) {
+        // Found a cycle — check if it passes through an ask node
         const cycleStart = path.indexOf(neighbor);
-        for (let i = cycleStart; i < path.length; i++) {
-          cycleNodes.add(path[i]);
+        const cycleSlice = path.slice(cycleStart);
+        const hasAskNode = cycleSlice.some((id) => nodeTypeMap.get(id) === "ask");
+
+        // Only flag as infinite if no ask node breaks the loop
+        if (!hasAskNode) {
+          for (const id of cycleSlice) {
+            cycleNodes.add(id);
+          }
         }
       } else if (color.get(neighbor) === WHITE) {
         dfs(neighbor, path);

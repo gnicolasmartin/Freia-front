@@ -73,7 +73,8 @@ export type FrontSectionType =
   | "chart_line" | "chart_bar" | "chart_pie" | "chart_kpi"
   | "table_data" | "table_stock"
   | "form_contact" | "button_cta"
-  | "stock_list" | "stock_form";
+  | "stock_list" | "stock_form"
+  | "calendar_booking";
 
 export interface FrontSection {
   id: string;
@@ -110,6 +111,7 @@ export const SECTION_TYPE_CONFIG: Record<FrontSectionType, { label: string; desc
   button_cta: { label: "Botón CTA", description: "Botón de acción con enlace" },
   stock_list: { label: "Listado de stock", description: "Catálogo de productos con búsqueda" },
   stock_form: { label: "Formulario de stock", description: "Alta/edición de producto" },
+  calendar_booking: { label: "Reserva de calendario", description: "Widget interactivo para consultar disponibilidad y reservar" },
 };
 
 export const EMPTY_FRONT_PAGE: Omit<FrontPage, "id"> = {

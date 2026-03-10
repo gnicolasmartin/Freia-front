@@ -447,30 +447,46 @@ export function seedDemoImportador(): boolean {
   // Clean up old sentinels so version bump forces re-seed
   for (const k of OLD_SEED_KEYS) localStorage.removeItem(k);
 
-  // Invalidate other demo's sentinel so it can re-seed when switching back
+  // Invalidate other demos' sentinels so they can re-seed when switching back
   localStorage.removeItem("freia_seed_cubiertas_v16");
+  localStorage.removeItem("freia_seed_rincon_v1");
+  localStorage.removeItem("freia_seed_rincon_v2");
+  localStorage.removeItem("freia_seed_rincon_v3");
+  localStorage.removeItem("freia_seed_rincon_v4");
+  localStorage.removeItem("freia_seed_rincon_v5");
+  localStorage.removeItem("freia_seed_rincon_v6");
+  localStorage.removeItem("freia_seed_rincon_v7");
+  localStorage.removeItem("freia_seed_rincon_v8");
 
   // ALWAYS clean other demo's data (runs even if already seeded)
+  const OTHER_COMPANY_IDS = ["company_cubiertas", "company_rincon"];
   let cleaned = false;
   try {
     const products = JSON.parse(localStorage.getItem("freia_products") ?? "[]");
     const filtered = products.filter((p: Record<string, unknown>) => typeof p.sku !== "string" || (p.sku as string).startsWith("IMP-"));
     if (filtered.length !== products.length) { cleaned = true; localStorage.setItem("freia_products", JSON.stringify(filtered)); }
   } catch { /* ignore */ }
+  // Clean flows, agents, fronts, calendars by companyId
   try {
-    const flows = JSON.parse(localStorage.getItem("freia_flows") ?? "[]");
-    const filtered = flows.filter((f: Record<string, unknown>) => f.name !== "Consulta de Stock — Cubiertas");
-    if (filtered.length !== flows.length) { cleaned = true; localStorage.setItem("freia_flows", JSON.stringify(filtered)); }
+    for (const key of ["freia_flows", "freia_agents", "freia_fronts", "freia_calendars"]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const arr: any[] = JSON.parse(localStorage.getItem(key) ?? "[]");
+      const filtered = arr.filter((item) => !OTHER_COMPANY_IDS.includes(item.companyId));
+      if (filtered.length !== arr.length) { cleaned = true; localStorage.setItem(key, JSON.stringify(filtered)); }
+    }
   } catch { /* ignore */ }
+  // Clean calendar sub-entities by calendarId (collect IDs from OTHER companies first)
   try {
-    const agents = JSON.parse(localStorage.getItem("freia_agents") ?? "[]");
-    const filtered = agents.filter((a: Record<string, unknown>) => a.name !== "Asistente Cubiertas Express");
-    if (filtered.length !== agents.length) { cleaned = true; localStorage.setItem("freia_agents", JSON.stringify(filtered)); }
-  } catch { /* ignore */ }
-  try {
-    const fronts = JSON.parse(localStorage.getItem("freia_fronts") ?? "[]");
-    const filtered = fronts.filter((f: Record<string, unknown>) => f.name !== "Cubiertas Express");
-    if (filtered.length !== fronts.length) { cleaned = true; localStorage.setItem("freia_fronts", JSON.stringify(filtered)); }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const otherCalendarIds = new Set((JSON.parse(localStorage.getItem("freia_calendars") ?? "[]") as any[]).filter((c) => OTHER_COMPANY_IDS.includes(c.companyId)).map((c) => c.id));
+    if (otherCalendarIds.size > 0) {
+      for (const key of ["freia_calendar_resources", "freia_calendar_blocks", "freia_calendar_min_stay_rules", "freia_bookings"]) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const arr: any[] = JSON.parse(localStorage.getItem(key) ?? "[]");
+        const filtered = arr.filter((item) => !otherCalendarIds.has(item.calendarId));
+        if (filtered.length !== arr.length) { cleaned = true; localStorage.setItem(key, JSON.stringify(filtered)); }
+      }
+    }
   } catch { /* ignore */ }
   if (localStorage.getItem("freia_variant_types")) { cleaned = true; localStorage.removeItem("freia_variant_types"); }
   if (localStorage.getItem("freia_discounts")) { cleaned = true; localStorage.removeItem("freia_discounts"); }

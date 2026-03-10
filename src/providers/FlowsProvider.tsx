@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useMemo,
   type ReactNode,
 } from "react";
 import type { Flow, FlowFormData, FlowNode, FlowEdge, FlowVersion, FlowVariable, TestPreset } from "@/types/flow";
@@ -267,10 +268,17 @@ export function FlowsProvider({ children }: { children: ReactNode }) {
 
   const getFlow = (id: string) => flows.find((f) => f.id === id);
 
+  // Filter by current user's company (root sees all)
+  const scopedFlows = useMemo(() => {
+    const companyId = getSessionCompanyId();
+    if (!companyId) return flows;
+    return flows.filter((f) => f.companyId === companyId);
+  }, [flows]);
+
   return (
     <FlowsContext.Provider
       value={{
-        flows,
+        flows: scopedFlows,
         isLoading,
         createFlow,
         updateFlow,

@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useMemo,
   type ReactNode,
 } from "react";
 import type { Front, FrontFormData, FrontVersion, FrontPage } from "@/types/front";
@@ -312,10 +313,17 @@ export function FrontsProvider({ children }: { children: ReactNode }) {
     return { front, version };
   };
 
+  // Filter by current user's company (root sees all)
+  const scopedFronts = useMemo(() => {
+    const companyId = getSessionCompanyId();
+    if (!companyId) return fronts;
+    return fronts.filter((f) => f.companyId === companyId);
+  }, [fronts]);
+
   return (
     <FrontsContext.Provider
       value={{
-        fronts,
+        fronts: scopedFronts,
         isLoading,
         createFront,
         updateFront,

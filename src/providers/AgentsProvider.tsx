@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useMemo,
   type ReactNode,
 } from "react";
 import type { Agent, AgentFormData } from "@/types/agent";
@@ -29,6 +30,7 @@ function migrateAgent(raw: Record<string, unknown>): Agent {
   const now = new Date().toISOString();
   return {
     id: (raw.id as string) ?? crypto.randomUUID(),
+    companyId: raw.companyId as string | undefined,
     name: (raw.name as string) ?? "",
     description: (raw.description as string) ?? "",
     status: (raw.status as Agent["status"]) ?? "draft",
@@ -72,6 +74,7 @@ function migrateAgent(raw: Record<string, unknown>): Agent {
     policyScope: "inherited",
     allowOverride:
       typeof raw.allowOverride === "boolean" ? raw.allowOverride : false,
+    whatsappOutbound: typeof raw.whatsappOutbound === "boolean" ? raw.whatsappOutbound : false,
     createdAt: (raw.createdAt as string) ?? now,
     updatedAt: (raw.updatedAt as string) ?? now,
   };
@@ -143,9 +146,16 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
 
   const getAgent = (id: string) => agents.find((a) => a.id === id);
 
+  // Filter by current user's company (root sees all)
+  const scopedAgents = useMemo(() => {
+    const companyId = getSessionCompanyId();
+    if (!companyId) return agents; // root or no session — sees all
+    return agents.filter((a) => a.companyId === companyId);
+  }, [agents]);
+
   return (
     <AgentsContext.Provider
-      value={{ agents, isLoading, createAgent, updateAgent, deleteAgent, getAgent }}
+      value={{ agents: scopedAgents, isLoading, createAgent, updateAgent, deleteAgent, getAgent }}
     >
       {children}
     </AgentsContext.Provider>

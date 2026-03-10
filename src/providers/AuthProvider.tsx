@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { seedDemoCubiertas } from "@/lib/seed-demo-cubiertas";
 import { seedDemoImportador } from "@/lib/seed-demo-importador";
+import { seedDemoRincon } from "@/lib/seed-demo-rincon";
 import { resolvePermissions } from "@/types/user-management";
 import type { SystemUser, Profile, Company, ModulePermission, SystemRole } from "@/types/user-management";
 
@@ -47,6 +48,10 @@ const DEMO_USERS: Record<string, { password: string; user: User }> = {
   "root@freia.ai": {
     password: "root123",
     user: { id: "0", email: "root@freia.ai", name: "Sysadmin Freia", role: "root", companyId: null, profileId: null, permissions: [] },
+  },
+  "quintas@freia.ai": {
+    password: "quintas123",
+    user: { id: "5", email: "quintas@freia.ai", name: "Quintas El Rincón", role: "company_admin", companyId: "company_rincon", profileId: "profile_rincon_admin", permissions: [] },
   },
 };
 
@@ -149,6 +154,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     if (email === "importador@freia.ai" && seedDemoImportador()) {
+      window.location.reload();
+      return;
+    }
+    if (email === "quintas@freia.ai" && seedDemoRincon()) {
       window.location.reload();
       return;
     }

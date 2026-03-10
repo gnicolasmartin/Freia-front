@@ -8,6 +8,8 @@ export type Capability =
   | "getStock"
   | "reserveStock"
   | "createBooking"
+  | "checkCalendar"
+  | "searchResources"
   | "createTicket";
 
 export const CAPABILITY_LABELS: Record<
@@ -18,8 +20,10 @@ export const CAPABILITY_LABELS: Record<
   updateLead:    { label: "Update Lead",    description: "Actualizar un lead existente en el CRM", color: "text-sky-400"     },
   getStock:      { label: "Get Stock",      description: "Consultar disponibilidad de stock",      color: "text-emerald-400" },
   reserveStock:  { label: "Reserve Stock",  description: "Reservar unidades de un producto",       color: "text-amber-400"   },
-  createBooking: { label: "Create Booking", description: "Crear una reserva o cita",               color: "text-purple-400"  },
-  createTicket:  { label: "Create Ticket",  description: "Crear un ticket de soporte",             color: "text-red-400"     },
+  createBooking:   { label: "Create Booking",   description: "Crear una reserva o cita",               color: "text-purple-400"  },
+  checkCalendar:   { label: "Check Calendar",   description: "Consultar disponibilidad en calendario", color: "text-amber-400"   },
+  searchResources: { label: "Search Resources", description: "Buscar recursos por especificaciones",   color: "text-teal-400"    },
+  createTicket:    { label: "Create Ticket",    description: "Crear un ticket de soporte",             color: "text-red-400"     },
 };
 
 // --- Categories ---
@@ -169,15 +173,24 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
   {
     id: "calendar_check",
     name: "Consultar calendario",
-    description: "Consulta disponibilidad de turnos en una fecha",
+    description: "Consulta disponibilidad de turnos/días en un calendario. Soporta fechas puntuales o rangos (startDate+endDate). Para rangos como 'en febrero' usar startDate=2026-02-01 y endDate=2026-02-28. Con findNearest=true busca las fechas más cercanas con disponibilidad a partir de startDate (útil cuando el cliente pregunta 'qué es lo más cercano que tenés').",
     category: "booking",
+    capability: "checkCalendar",
     inputSchema: [
-      { name: "date", label: "Fecha", type: "date", required: true },
+      { name: "calendarId", label: "ID Calendario", type: "string" },
+      { name: "startDate", label: "Fecha inicio", type: "date" },
+      { name: "endDate", label: "Fecha fin (rango)", type: "date" },
+      { name: "date", label: "Fecha (alias de startDate)", type: "date" },
+      { name: "findNearest", label: "Buscar disponibilidad más cercana", type: "boolean" },
       { name: "duration", label: "Duración (min)", type: "number" },
+      { name: "resourceId", label: "ID Recurso", type: "string" },
     ],
     outputSchema: [
       { name: "slots", label: "Horarios disponibles", type: "array" },
+      { name: "availableDates", label: "Fechas disponibles por recurso", type: "array" },
+      { name: "nearestAvailability", label: "Disponibilidad más cercana por recurso", type: "array" },
       { name: "date", label: "Fecha consultada", type: "date" },
+      { name: "calendarName", label: "Calendario", type: "string" },
     ],
     requiresConfirmation: false,
     supportsSimulation: true,
@@ -350,20 +363,50 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     versions: [],
   },
   {
+    id: "search_resources",
+    name: "Buscar quintas/recursos",
+    description: "Busca recursos disponibles según especificaciones del cliente (capacidad, amenities, ubicación, fechas). Útil cuando el cliente describe lo que busca sin especificar un recurso concreto.",
+    category: "booking",
+    capability: "searchResources",
+    inputSchema: [
+      { name: "calendarId",       label: "ID Calendario",     type: "string" },
+      { name: "query",            label: "Búsqueda",          type: "string", required: true },
+      { name: "minCapacity",      label: "Capacidad mínima",  type: "number" },
+      { name: "startDate",        label: "Fecha inicio",      type: "date" },
+      { name: "endDate",          label: "Fecha fin",         type: "date" },
+      { name: "requiredFeatures", label: "Features requeridos (coma-separados)", type: "string" },
+    ],
+    outputSchema: [
+      { name: "matches",     label: "Recursos que coinciden",    type: "array" },
+      { name: "suggestions", label: "Alternativas sugeridas",    type: "array" },
+      { name: "reasoning",   label: "Explicación",               type: "string" },
+    ],
+    requiresConfirmation: false,
+    supportsSimulation: true,
+    createdAt: now,
+    updatedAt: now,
+    versions: [],
+  },
+  {
     id: "create_booking",
-    name: "Create Booking",
-    description: "Crear una reserva o cita en el sistema conectado",
+    name: "Crear reserva",
+    description: "Crear una reserva en un calendario configurado",
     category: "booking",
     capability: "createBooking",
     inputSchema: [
-      { name: "date",      label: "Fecha",       type: "date",   required: true },
-      { name: "time",      label: "Hora",        type: "string", required: true },
-      { name: "contactId", label: "ID Contacto", type: "string" },
-      { name: "notes",     label: "Notas",       type: "string" },
+      { name: "calendarId",   label: "ID Calendario",    type: "string", required: true },
+      { name: "resourceId",   label: "ID Recurso",       type: "string", required: true },
+      { name: "date",         label: "Fecha",            type: "date",   required: true },
+      { name: "time",         label: "Hora",             type: "string" },
+      { name: "endDate",      label: "Fecha fin",        type: "date" },
+      { name: "contactName",  label: "Nombre contacto",  type: "string", required: true },
+      { name: "contactPhone", label: "Teléfono",         type: "string" },
+      { name: "notes",        label: "Notas",            type: "string" },
     ],
     outputSchema: [
-      { name: "bookingId", label: "ID Reserva", type: "string" },
-      { name: "confirmedAt", label: "Confirmada", type: "date" },
+      { name: "bookingId",        label: "ID Reserva",         type: "string" },
+      { name: "confirmationCode", label: "Código confirmación", type: "string" },
+      { name: "confirmedAt",      label: "Confirmada",          type: "date" },
     ],
     requiresConfirmation: false,
     supportsSimulation: true,

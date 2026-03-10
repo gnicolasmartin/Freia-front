@@ -15,6 +15,7 @@ export const MODULE_KEYS = [
   "conversations",
   "leads",
   "stock", "stock.create", "stock.edit", "stock.delete",
+  "calendars", "calendars.create", "calendars.edit", "calendars.delete",
   "policies", "policies.create", "policies.edit", "policies.delete",
   "audit",
   "channels",
@@ -26,7 +27,7 @@ export type ModulePermission = (typeof MODULE_KEYS)[number];
 
 export const TOP_LEVEL_MODULES = [
   "dashboard", "agents", "flows", "tools", "integrations",
-  "conversations", "leads", "stock", "policies", "audit",
+  "conversations", "leads", "stock", "calendars", "policies", "audit",
   "channels", "fronts", "settings",
 ] as const;
 
@@ -141,6 +142,11 @@ export const MODULE_PERMISSION_CONFIG: Record<TopLevelModule, {
     { key: "stock.edit", label: "Editar" },
     { key: "stock.delete", label: "Eliminar" },
   ]},
+  calendars:     { label: "Calendarios",      subPermissions: [
+    { key: "calendars.create", label: "Crear" },
+    { key: "calendars.edit", label: "Editar" },
+    { key: "calendars.delete", label: "Eliminar" },
+  ]},
   policies:      { label: "Políticas",        subPermissions: [
     { key: "policies.create", label: "Crear" },
     { key: "policies.edit", label: "Editar" },
@@ -162,7 +168,12 @@ export function resolvePermissions(
   role: SystemRole,
   profile: Profile | null,
 ): ModulePermission[] {
-  if (role === "root" || role === "company_admin") {
+  if (role === "root") {
+    return [...MODULE_KEYS];
+  }
+  // company_admin and company_user: use profile permissions
+  // company_admin without profile gets ALL permissions (backward-compat)
+  if (role === "company_admin" && !profile) {
     return [...MODULE_KEYS];
   }
   return profile?.permissions ?? [];
@@ -184,6 +195,8 @@ export function canAccessModule(
   permissions: ModulePermission[],
   moduleKey: TopLevelModule,
 ): boolean {
-  if (role === "root" || role === "company_admin") return true;
+  if (role === "root") return true;
+  // All other roles (company_admin, company_user) check permissions
+  // Note: company_admin without profile gets all permissions via resolvePermissions
   return permissions.includes(moduleKey);
 }

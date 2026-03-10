@@ -8,6 +8,7 @@ import { IntegrationsProvider } from "@/providers/IntegrationsProvider";
 import { PoliciesProvider } from "@/providers/PoliciesProvider";
 import { ConversationsProvider } from "@/providers/ConversationsProvider";
 import { ProductsProvider } from "@/providers/ProductsProvider";
+import { CalendarsProvider } from "@/providers/CalendarsProvider";
 import { FrontsProvider } from "@/providers/FrontsProvider";
 import { AuditLogProvider } from "@/providers/AuditLogProvider";
 import { AgentDecisionLogProvider } from "@/providers/AgentDecisionLogProvider";
@@ -88,11 +89,13 @@ export default function RootLayout({
                   <ToolExecutionHistoryProvider>
                     <ConversationsProvider>
                     <ProductsProvider>
+                    <CalendarsProvider>
                     <FrontsProvider>
                     <MessageProcessorProvider>
                       {children}
                     </MessageProcessorProvider>
                     </FrontsProvider>
+                    </CalendarsProvider>
                     </ProductsProvider>
                     </ConversationsProvider>
                   </ToolExecutionHistoryProvider>

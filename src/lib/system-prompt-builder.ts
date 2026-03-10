@@ -131,6 +131,12 @@ export function buildSystemPrompt(
   const { availableTools = [] } = options;
   const lines: string[] = [];
 
+  // 0. Current date context
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("es-AR", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  lines.push(`Fecha actual: ${dateStr}.`);
+  lines.push("");
+
   // 1. Identity
   const identity = agent.name.trim() || "un asistente virtual";
   const desc = agent.description.trim();

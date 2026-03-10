@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { Product, VariantType, Discount } from "@/types/product";
 import { addStockAuditEntry } from "@/lib/stock-audit";
 import { getSessionCompanyId } from "@/lib/get-session-company";
@@ -239,9 +239,16 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
   const getDiscountUsage = (discountId: string): Product[] =>
     products.filter((p) => p.discountIds?.includes(discountId));
 
+  // Filter by current user's company (root sees all)
+  const scopedProducts = useMemo(() => {
+    const companyId = getSessionCompanyId();
+    if (!companyId) return products;
+    return products.filter((p) => p.companyId === companyId);
+  }, [products]);
+
   return (
     <ProductsContext.Provider value={{
-      products, addProduct, updateProduct, deleteProduct,
+      products: scopedProducts, addProduct, updateProduct, deleteProduct,
       variantTypes, addVariantType, updateVariantType, deleteVariantType, getVariantTypeUsage,
       discounts, addDiscount, updateDiscount, deleteDiscount, getDiscountUsage,
     }}>

@@ -901,8 +901,16 @@ export function seedDemoCubiertas(): boolean {
   // Clean up old sentinels so version bump forces re-seed
   for (const k of OLD_SEED_KEYS) localStorage.removeItem(k);
 
-  // Invalidate other demo's sentinel so it can re-seed when switching back
+  // Invalidate other demos' sentinels so they can re-seed when switching back
   localStorage.removeItem("freia_seed_importador_v3");
+  localStorage.removeItem("freia_seed_rincon_v1");
+  localStorage.removeItem("freia_seed_rincon_v2");
+  localStorage.removeItem("freia_seed_rincon_v3");
+  localStorage.removeItem("freia_seed_rincon_v4");
+  localStorage.removeItem("freia_seed_rincon_v5");
+  localStorage.removeItem("freia_seed_rincon_v6");
+  localStorage.removeItem("freia_seed_rincon_v7");
+  localStorage.removeItem("freia_seed_rincon_v8");
 
   // ALWAYS clean other demo's data (runs even if already seeded)
   let cleaned = false;
@@ -927,6 +935,33 @@ export function seedDemoCubiertas(): boolean {
     if (filtered.length !== fronts0.length) { cleaned = true; localStorage.setItem("freia_fronts", JSON.stringify(filtered)); }
   } catch { /* ignore */ }
   if (localStorage.getItem("freia_import_messages")) { cleaned = true; localStorage.removeItem("freia_import_messages"); }
+
+  // Clean rincon demo data (by companyId + name fallback for legacy data)
+  const RINCON_NAMES = [
+    "Asistente Quintas El Rincón", "Consulta de Disponibilidad — Quintas",
+    "Quintas El Rincón de Mi Mundo", "Quintas El Rincón",
+  ];
+  try {
+    const rinconCompanyId = "company_rincon";
+    // Collect calendar IDs BEFORE cleaning calendars
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rinconCalendarIds = new Set((JSON.parse(localStorage.getItem("freia_calendars") ?? "[]") as any[]).filter((c) => c.companyId === rinconCompanyId || (!c.companyId && RINCON_NAMES.includes(c.name))).map((c) => c.id));
+
+    for (const key of ["freia_flows", "freia_agents", "freia_fronts", "freia_calendars"]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const arr: any[] = JSON.parse(localStorage.getItem(key) ?? "[]");
+      const filtered = arr.filter((item) => item.companyId !== rinconCompanyId && !((!item.companyId) && RINCON_NAMES.includes(item.name)));
+      if (filtered.length !== arr.length) { cleaned = true; localStorage.setItem(key, JSON.stringify(filtered)); }
+    }
+    if (rinconCalendarIds.size > 0) {
+      for (const key of ["freia_calendar_resources", "freia_calendar_blocks", "freia_calendar_min_stay_rules", "freia_bookings"]) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const arr: any[] = JSON.parse(localStorage.getItem(key) ?? "[]");
+        const filtered = arr.filter((item) => !rinconCalendarIds.has(item.calendarId));
+        if (filtered.length !== arr.length) { cleaned = true; localStorage.setItem(key, JSON.stringify(filtered)); }
+      }
+    }
+  } catch { /* ignore */ }
 
   // Already seeded with current version — reload if we cleaned other data
   if (localStorage.getItem(SEED_KEY)) {
