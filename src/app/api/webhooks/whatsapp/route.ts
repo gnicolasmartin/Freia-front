@@ -264,24 +264,43 @@ export async function POST(request: NextRequest): Promise<Response> {
     const resolvedCompanyId = companyId ?? process.env.FREIA_COMPANY_ID ?? "default";
     crumbs.push({ step: "resolved_company", ts: Date.now() - t0, detail: resolvedCompanyId });
 
-    // Fetch processing config from backend
+    // Fetch processing config from backend (try resolved companyId, then fallbacks)
     let configBlob: Record<string, unknown> | null = null;
-    try {
-      const configRes = await fetchWithRetry(
-        `${API_URL}/processing-config/${encodeURIComponent(resolvedCompanyId)}`,
-        { method: "GET" }
-      );
-      if (configRes.ok) {
-        const configData = (await configRes.json()) as {
-          config: Record<string, unknown> | null;
-        };
-        configBlob = configData.config;
-      }
-    } catch (err) {
-      console.warn("[WhatsApp Webhook] Failed to fetch processing config:", err);
+    let configCompanyId = resolvedCompanyId;
+
+    const companyIdsToTry = [resolvedCompanyId];
+    // Add FREIA_COMPANY_ID as fallback if different
+    const envCompanyId = process.env.FREIA_COMPANY_ID;
+    if (envCompanyId && envCompanyId !== resolvedCompanyId) {
+      companyIdsToTry.push(envCompanyId);
+    }
+    // Add "default" as last resort
+    if (!companyIdsToTry.includes("default")) {
+      companyIdsToTry.push("default");
     }
 
-    crumbs.push({ step: "config_fetched", ts: Date.now() - t0, detail: { hasConfig: !!configBlob } });
+    for (const tryId of companyIdsToTry) {
+      try {
+        const configRes = await fetchWithRetry(
+          `${API_URL}/processing-config/${encodeURIComponent(tryId)}`,
+          { method: "GET" }
+        );
+        if (configRes.ok) {
+          const configData = (await configRes.json()) as {
+            config: Record<string, unknown> | null;
+          };
+          if (configData.config) {
+            configBlob = configData.config;
+            configCompanyId = tryId;
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn(`[WhatsApp Webhook] Failed to fetch config for ${tryId}:`, err);
+      }
+    }
+
+    crumbs.push({ step: "config_fetched", ts: Date.now() - t0, detail: { hasConfig: !!configBlob, configCompanyId, triedIds: companyIdsToTry } });
 
     if (configBlob) {
       // Resolve WhatsApp credentials for sending
@@ -319,7 +338,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         const activeConversations = new Map<string, ActiveConversation>();
         try {
           const convRes = await fetchWithRetry(
-            `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}`,
+            `${API_URL}/conversations/active/${encodeURIComponent(configCompanyId)}`,
             { method: "GET" }
           );
           if (convRes.ok) {
@@ -389,7 +408,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                 activeConversations.set(event.from, result.updatedConversation);
                 try {
                   await fetchWithRetry(
-                    `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}/${encodeURIComponent(event.from)}`,
+                    `${API_URL}/conversations/active/${encodeURIComponent(configCompanyId)}/${encodeURIComponent(event.from)}`,
                     {
                       method: "PUT",
                       headers: { "Content-Type": "application/json" },
@@ -403,7 +422,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                 activeConversations.delete(event.from);
                 try {
                   await fetchWithRetry(
-                    `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}/${encodeURIComponent(event.from)}`,
+                    `${API_URL}/conversations/active/${encodeURIComponent(configCompanyId)}/${encodeURIComponent(event.from)}`,
                     { method: "DELETE" }
                   );
                 } catch {
@@ -457,7 +476,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
     } else {
       console.warn(
-        `[WhatsApp Webhook] No processing config for company=${resolvedCompanyId}, skipping`
+        `[WhatsApp Webhook] No processing config found (tried: ${companyIdsToTry.join(", ")}), skipping`
       );
     }
   }
