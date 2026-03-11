@@ -66,6 +66,13 @@ export async function GET(request: NextRequest): Promise<Response> {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
+  // Log GET hits for debugging
+  void saveBreadcrumbs([{
+    step: "GET_hit",
+    ts: 0,
+    detail: { mode, hasToken: !!token, hasChallenge: !!challenge, url: request.url },
+  }]);
+
   const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN;
 
   if (!expectedToken) {
@@ -144,7 +151,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     crumbs.push({ step: "body_read", ts: Date.now() - t0, detail: { length: rawBody.length } });
   } catch {
     crumbs.push({ step: "body_read_error", ts: Date.now() - t0 });
-    void saveBreadcrumbs(crumbs);
+    await saveBreadcrumbs(crumbs);
     return new NextResponse("Bad Request", { status: 400 });
   }
 
@@ -155,7 +162,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     crumbs.push({ step: "json_parsed", ts: Date.now() - t0 });
   } catch {
     crumbs.push({ step: "json_parse_error", ts: Date.now() - t0 });
-    void saveBreadcrumbs(crumbs);
+    await saveBreadcrumbs(crumbs);
     return new NextResponse("Bad Request: invalid JSON", { status: 400 });
   }
 
@@ -177,7 +184,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         if (!verifySignature(rawBody, signatureHeader, credentials.appSecret)) {
           console.warn(`[WhatsApp Webhook] Signature validation failed for company=${companyId}`);
           crumbs.push({ step: "sig_fail_company", ts: Date.now() - t0 });
-          void saveBreadcrumbs(crumbs);
+          await saveBreadcrumbs(crumbs);
           return new NextResponse("Unauthorized", { status: 401 });
         }
         crumbs.push({ step: "sig_ok_company", ts: Date.now() - t0 });
@@ -456,6 +463,6 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   crumbs.push({ step: "done", ts: Date.now() - t0 });
-  void saveBreadcrumbs(crumbs);
+  await saveBreadcrumbs(crumbs);
   return new NextResponse("OK", { status: 200 });
 }
