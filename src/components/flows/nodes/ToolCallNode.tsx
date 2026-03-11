@@ -7,8 +7,16 @@ import { useSimulationBorder } from "../SimulationHighlightContext";
 export default function ToolCallNode({ id, data, selected }: NodeProps) {
   const { getToolLabel, getToolSchema } = useToolRegistry();
   const nodeData = data as Record<string, unknown>;
-  const tool = nodeData.tool as string | undefined;
-  const mappings = (nodeData.parameterMapping as ToolParamMapping[]) || [];
+  const tool = (nodeData.tool as string) || (nodeData.toolId as string) || undefined;
+  // parameterMapping can be array (visual format) or object (saved format)
+  const rawMapping = nodeData.parameterMapping;
+  const mappings: ToolParamMapping[] = Array.isArray(rawMapping)
+    ? rawMapping as ToolParamMapping[]
+    : rawMapping && typeof rawMapping === "object"
+      ? Object.entries(rawMapping as Record<string, { variableName?: string }>).map(
+          ([paramName, m]) => ({ id: paramName, paramName, variableName: m?.variableName || "" })
+        )
+      : [];
   const requireConfirmation = !!nodeData.requireConfirmation;
   const borderClass = useSimulationBorder(
     id,

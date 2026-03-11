@@ -1685,8 +1685,16 @@ export async function stepSimulation(
 
     // ---- Tool Call ----
     case "toolcall": {
-      const tool = (d.tool as string) || "unknown";
-      const mappings = (d.parameterMapping as ToolParamMapping[]) || [];
+      const tool = (d.tool as string) || (d.toolId as string) || "unknown";
+      // parameterMapping can be an array (frontend visual format) or an object/Record (saved format).
+      const rawMapping = d.parameterMapping;
+      const mappings: ToolParamMapping[] = Array.isArray(rawMapping)
+        ? rawMapping as ToolParamMapping[]
+        : rawMapping && typeof rawMapping === "object"
+          ? Object.entries(rawMapping as Record<string, { source?: string; variableName?: string; staticValue?: string }>).map(
+              ([paramName, m]) => ({ id: paramName, paramName, variableName: m?.variableName || "" })
+            )
+          : [];
       const toolSchema = options?.toolSchemas?.[tool];
       const { params, missing } = resolveToolParams(tool, mappings, state.vars, toolSchema);
 
