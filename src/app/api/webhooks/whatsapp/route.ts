@@ -195,7 +195,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (messageEvents.length === 0) return;
 
     // Resolve company for config + credentials
-    const resolvedCompanyId = companyId ?? "default";
+    // Fallback: env var for single-tenant deployments where channel_configs
+    // table may not have entries (channels stored in browser localStorage).
+    const resolvedCompanyId = companyId ?? process.env.FREIA_COMPANY_ID ?? "default";
 
     // Fetch processing config from backend
     let configBlob: Record<string, unknown> | null = null;
