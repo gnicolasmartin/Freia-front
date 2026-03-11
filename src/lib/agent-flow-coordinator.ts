@@ -140,6 +140,7 @@ async function callOpenAIRaw(
     maxTokens?: number;
     temperature?: number;
     tools?: OpenAITool[];
+    forceToolCall?: boolean;
   } = {}
 ): Promise<{
   content: string | null;
@@ -154,7 +155,7 @@ async function callOpenAIRaw(
   };
   if (opts.tools?.length) {
     body.tools = opts.tools;
-    body.tool_choice = "auto";
+    body.tool_choice = opts.forceToolCall ? "required" : "auto";
   }
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -553,6 +554,7 @@ export async function callLLMWithTool(
       maxTokens: 512,
       temperature: agent.temperature,
       tools: openaiTools,
+      forceToolCall: true,
     });
 
     if (result.finish_reason === "tool_calls" && result.tool_calls?.length) {

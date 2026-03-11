@@ -1913,7 +1913,8 @@ export async function stepSimulation(
                 status: directNextId ? "running" : "completed",
               };
             }
-          } catch {
+          } catch (hybridErr) {
+            console.error("[FlowSimulator] Hybrid toolcall failed, falling back to mock:", hybridErr);
             // Fall through to standard mock execution below
           }
         }
