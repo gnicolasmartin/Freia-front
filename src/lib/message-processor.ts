@@ -352,7 +352,7 @@ export async function processInboundMessage(
       `simOptions.hasAgent=${!!existing.simulationOptions?.agent}, ` +
       `simOptions.hasApiKey=${!!existing.simulationOptions?.agentApiKey}`
     );
-    return resumeConversation(existing, resolvedInput, waCredentials, testMode, send);
+    return resumeConversation(existing, resolvedInput, waCredentials, testMode, send, calendarData, openaiApiKey);
   }
 
   // ── 2. Route to agent ──────────────────────────────────────────────────────
@@ -559,9 +559,21 @@ async function resumeConversation(
   userInput: string,
   waCredentials: WACredentials | null,
   testMode: boolean,
-  send: SendMessageFn = sendWhatsAppMessage
+  send: SendMessageFn = sendWhatsAppMessage,
+  freshCalendarData?: ProcessMessageInput["calendarData"],
+  freshOpenaiApiKey?: string,
 ): Promise<ProcessMessageResult> {
-  const { nodes, edges, variables, simulationOptions, agentId, agentName, flowId } = conversation;
+  const { nodes, edges, variables, agentId, agentName, flowId } = conversation;
+
+  // Refresh simulationOptions with current config data — saved conversations
+  // may have stale data (e.g., no calendarData, no apiKey).
+  const simulationOptions = { ...conversation.simulationOptions };
+  if (freshCalendarData) {
+    simulationOptions.calendarData = freshCalendarData;
+  }
+  if (freshOpenaiApiKey && simulationOptions.agent && !simulationOptions.agentApiKey) {
+    simulationOptions.agentApiKey = freshOpenaiApiKey;
+  }
 
   let simState = conversation.simulationState;
   const responseTexts: string[] = [];
