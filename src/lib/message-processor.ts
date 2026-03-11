@@ -476,17 +476,16 @@ export async function processInboundMessage(
       ? buildInteractivePayload(simState.waitingForInput)
       : undefined;
 
-  for (let i = 0; i < responseTexts.length; i++) {
-    const text = responseTexts[i];
-    // Attach interactive buttons/list to the LAST message only
-    const isLast = i === responseTexts.length - 1;
-    const interactive = isLast ? interactivePayload : undefined;
-
-    const sendResult = await send(contactPhone, text, waCredentials, testMode, interactive);
+  // Combine all response texts into a single WhatsApp message to avoid
+  // sending multiple messages when the flow generates several bot responses
+  // in a single pass (e.g. welcome + closing).
+  if (responseTexts.length > 0) {
+    const combinedText = responseTexts.join("\n\n");
+    const sendResult = await send(contactPhone, combinedText, waCredentials, testMode, interactivePayload);
     if (!sendResult.success) {
       console.error(`[MessageProcessor] Failed to send: ${sendResult.error}`);
     } else {
-      console.info(`[MessageProcessor] Sent to ${contactPhone}: ${sendResult.messageId} (interactive=${interactive?.type ?? "none"})`);
+      console.info(`[MessageProcessor] Sent to ${contactPhone}: ${sendResult.messageId} (${responseTexts.length} texts combined, interactive=${interactivePayload?.type ?? "none"})`);
     }
   }
 
@@ -570,18 +569,16 @@ async function resumeConversation(
     `[MessageProcessor] Resumed: ${steps} steps, ${responseTexts.length} responses, status=${simState.status}`
   );
 
-  // Send responses (with interactive payload on last message if applicable)
+  // Send responses (with interactive payload if applicable)
   const resumeInteractive =
     simState.status === "waiting_input" && simState.waitingForInput
       ? buildInteractivePayload(simState.waitingForInput)
       : undefined;
 
-  for (let i = 0; i < responseTexts.length; i++) {
-    const text = responseTexts[i];
-    const isLast = i === responseTexts.length - 1;
-    const interactive = isLast ? resumeInteractive : undefined;
-
-    const sendResult = await send(conversation.contactPhone, text, waCredentials, testMode, interactive);
+  // Combine all response texts into a single WhatsApp message
+  if (responseTexts.length > 0) {
+    const combinedText = responseTexts.join("\n\n");
+    const sendResult = await send(conversation.contactPhone, combinedText, waCredentials, testMode, resumeInteractive);
     if (!sendResult.success) {
       console.error(`[MessageProcessor] Failed to send: ${sendResult.error}`);
     }
