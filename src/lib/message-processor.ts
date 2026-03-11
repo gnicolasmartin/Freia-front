@@ -49,6 +49,15 @@ export interface WACredentials {
   companyId?: string;
 }
 
+/** Signature for a send function (injectable for server-side processing). */
+export type SendMessageFn = (
+  to: string,
+  text: string,
+  credentials: WACredentials | null,
+  testMode: boolean,
+  interactive?: InteractivePayload
+) => Promise<{ success: boolean; messageId?: string; error?: string }>;
+
 export interface ProcessMessageInput {
   event: MessageReceivedEvent;
   activeConversations: Map<string, ActiveConversation>;
@@ -62,6 +71,16 @@ export interface ProcessMessageInput {
   openaiApiKey?: string;
   waCredentials: WACredentials | null;
   testMode: boolean;
+  /**
+   * Override the default browser-based send function.
+   * Server-side callers inject a direct WhatsApp API sender.
+   */
+  sendFn?: SendMessageFn;
+  /**
+   * Business hours config. If not provided, reads from localStorage
+   * (which returns defaults on the server where localStorage is unavailable).
+   */
+  businessHoursConfig?: import("@/types/business-hours").BusinessHoursConfig;
 }
 
 export interface ProcessMessageResult {
@@ -261,7 +280,11 @@ export async function processInboundMessage(
     openaiApiKey,
     waCredentials,
     testMode,
+    sendFn: customSendFn,
+    businessHoursConfig: customBHConfig,
   } = input;
+
+  const send: SendMessageFn = customSendFn ?? sendWhatsAppMessage;
 
   const contactPhone = event.from;
   const messageText = extractTextFromEvent(event);
@@ -300,12 +323,12 @@ export async function processInboundMessage(
     }
 
     console.info(`[MessageProcessor] Resuming conversation for ${contactPhone} (agent: ${existing.agentName}), input: "${resolvedInput}"`);
-    return resumeConversation(existing, resolvedInput, waCredentials, testMode);
+    return resumeConversation(existing, resolvedInput, waCredentials, testMode, send);
   }
 
   // ── 2. Route to agent ──────────────────────────────────────────────────────
 
-  const bhConfig = getBusinessHoursConfig();
+  const bhConfig = customBHConfig ?? getBusinessHoursConfig();
   const msgContext: InboundMessageContext = {
     from: contactPhone,
     phoneNumberId: event.phoneNumberId,
@@ -459,7 +482,7 @@ export async function processInboundMessage(
     const isLast = i === responseTexts.length - 1;
     const interactive = isLast ? interactivePayload : undefined;
 
-    const sendResult = await sendWhatsAppMessage(contactPhone, text, waCredentials, testMode, interactive);
+    const sendResult = await send(contactPhone, text, waCredentials, testMode, interactive);
     if (!sendResult.success) {
       console.error(`[MessageProcessor] Failed to send: ${sendResult.error}`);
     } else {
@@ -507,7 +530,8 @@ async function resumeConversation(
   conversation: ActiveConversation,
   userInput: string,
   waCredentials: WACredentials | null,
-  testMode: boolean
+  testMode: boolean,
+  send: SendMessageFn = sendWhatsAppMessage
 ): Promise<ProcessMessageResult> {
   const { nodes, edges, variables, simulationOptions, agentId, agentName, flowId } = conversation;
 
@@ -557,7 +581,7 @@ async function resumeConversation(
     const isLast = i === responseTexts.length - 1;
     const interactive = isLast ? resumeInteractive : undefined;
 
-    const sendResult = await sendWhatsAppMessage(conversation.contactPhone, text, waCredentials, testMode, interactive);
+    const sendResult = await send(conversation.contactPhone, text, waCredentials, testMode, interactive);
     if (!sendResult.success) {
       console.error(`[MessageProcessor] Failed to send: ${sendResult.error}`);
     }

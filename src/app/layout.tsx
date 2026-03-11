@@ -28,6 +28,7 @@ import { CompanyProvider } from "@/providers/CompanyProvider";
 import { UserManagementProvider } from "@/providers/UserManagementProvider";
 import { ProfileProvider } from "@/providers/ProfileProvider";
 import { MessageProcessorProvider } from "@/providers/MessageProcessorProvider";
+import { ConfigSyncProvider } from "@/providers/ConfigSyncProvider";
 import { DemoSeedGate } from "@/components/DemoSeedGate";
 import "./globals.css";
 
@@ -95,9 +96,11 @@ export default function RootLayout({
                     <ProductsProvider>
                     <CalendarsProvider>
                     <FrontsProvider>
+                    <ConfigSyncProvider>
                     <MessageProcessorProvider>
                       {children}
                     </MessageProcessorProvider>
+                    </ConfigSyncProvider>
                     </FrontsProvider>
                     </CalendarsProvider>
                     </ProductsProvider>

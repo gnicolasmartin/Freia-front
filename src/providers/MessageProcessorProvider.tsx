@@ -244,6 +244,23 @@ export function MessageProcessorProvider({
           for (const id of entries.slice(-100)) processedMessageIds.add(id);
         }
 
+        // Claim event atomically — if server already processed it, skip
+        try {
+          const claimRes = await fetch(`/api/events/claim/${encodeURIComponent(event.messageId)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          });
+          if (claimRes.ok) {
+            const claimData = (await claimRes.json()) as { claimed: boolean };
+            if (!claimData.claimed) {
+              console.info(`[MessageProcessor] Event ${event.messageId.slice(0, 12)} already claimed (server processed), skipping`);
+              continue;
+            }
+          }
+        } catch {
+          // Claim endpoint unavailable — process anyway (backward compat)
+        }
+
         // Multi-tenant: if event has companyId, use it for credential resolution
         // The send route will lookup credentials from the backend DB
         const waCredentials = event.companyId
