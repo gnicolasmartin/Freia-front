@@ -76,6 +76,23 @@ export function ConfigSyncProvider({ children }: { children: ReactNode }) {
     const result = await syncConfigToBackend(companyId, blob);
     if (result.synced) {
       console.info("[ConfigSync] Synced processing config to backend");
+
+      // Also sync companyId to channel_configs so webhook routing resolves correctly
+      if (waCredentials?.phoneNumberId) {
+        try {
+          await fetch("/api/channels/sync-company", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              channel: "whatsapp",
+              phoneNumberId: waCredentials.phoneNumberId,
+              companyId,
+            }),
+          });
+        } catch {
+          // Non-critical — config blob is the primary sync
+        }
+      }
     } else if (result.error) {
       console.warn("[ConfigSync] Sync failed:", result.error);
     }
