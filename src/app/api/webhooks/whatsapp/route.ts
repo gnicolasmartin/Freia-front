@@ -439,6 +439,9 @@ export async function POST(request: NextRequest): Promise<Response> {
           businessHoursConfig: configBlob.businessHoursConfig as
             | import("@/types/business-hours").BusinessHoursConfig
             | undefined,
+          calendarData: configBlob.calendarData as
+            | { calendars: unknown[]; resources: unknown[]; bookings: unknown[]; blocks: unknown[]; minStayRules: unknown[] }
+            | undefined,
         });
 
         // Check if conversation was resumed (had existing state)
@@ -449,7 +452,8 @@ export async function POST(request: NextRequest): Promise<Response> {
           ts: Date.now() - t0,
           detail: {
             codeVersion: "v3",
-            openaiKeyPassed: "undefined",
+            openaiKeyPassed: (configBlob.openaiApiKey as string) ? "from_config" : "none",
+            hasCalendarData: !!(configBlob.calendarData as Record<string, unknown> | undefined),
             hadExistingConv: !!convForPhone,
             existingConvAgent: convForPhone?.simulationOptions?.agent ? "SET" : "none",
             existingConvApiKey: convForPhone?.simulationOptions?.agentApiKey ? "SET" : "none",

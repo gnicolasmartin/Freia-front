@@ -85,6 +85,14 @@ export interface SimulationOptions {
   /** Products catalogue — used by stocklookup nodes */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   products?: Record<string, any>[];
+  /** Calendar data for server-side tool execution (replaces localStorage reads). */
+  calendarData?: {
+    calendars: unknown[];
+    resources: unknown[];
+    bookings: unknown[];
+    blocks: unknown[];
+    minStayRules: unknown[];
+  };
 }
 
 // --- AI reasoning types ---
@@ -283,16 +291,38 @@ const TOOL_MOCK_RESPONSES: Record<
 function getCalendarToolResponse(
   tool: string,
   params: Record<string, unknown>,
+  injectedCalendarData?: SimulationOptions["calendarData"],
 ): { status: string; data: Record<string, unknown> } | null {
-  if (typeof window === "undefined") return null;
+  // On server: use injected calendar data from config sync
+  // On browser: read from localStorage
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let calendars: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let resources: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let bookingsData: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let blocks: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rules: any[];
+
+  if (injectedCalendarData) {
+    calendars = injectedCalendarData.calendars;
+    resources = injectedCalendarData.resources;
+    bookingsData = injectedCalendarData.bookings;
+    blocks = injectedCalendarData.blocks;
+    rules = injectedCalendarData.minStayRules;
+  } else if (typeof window !== "undefined") {
+    calendars = JSON.parse(localStorage.getItem("freia_calendars") || "[]");
+    resources = JSON.parse(localStorage.getItem("freia_calendar_resources") || "[]");
+    bookingsData = JSON.parse(localStorage.getItem("freia_bookings") || "[]");
+    blocks = JSON.parse(localStorage.getItem("freia_calendar_blocks") || "[]");
+    rules = JSON.parse(localStorage.getItem("freia_calendar_min_stay_rules") || "[]");
+  } else {
+    return null; // no calendar data available
+  }
 
   try {
-    const calendars = JSON.parse(localStorage.getItem("freia_calendars") || "[]");
-    const resources = JSON.parse(localStorage.getItem("freia_calendar_resources") || "[]");
-    const bookingsData = JSON.parse(localStorage.getItem("freia_bookings") || "[]");
-    const blocks = JSON.parse(localStorage.getItem("freia_calendar_blocks") || "[]");
-    const rules = JSON.parse(localStorage.getItem("freia_calendar_min_stay_rules") || "[]");
-
     if (calendars.length === 0) return null; // fallback to static mocks
 
     // Dynamically import to avoid circular deps — functions are pure
@@ -473,10 +503,11 @@ function getToolMockResponse(
   tool: string,
   outcome: ToolMockOutcome,
   params?: Record<string, unknown>,
+  calendarData?: SimulationOptions["calendarData"],
 ): { status: string; data: Record<string, unknown> } {
   // Try real calendar data for booking tools
   if (outcome === "success" && (tool === "calendar_check" || tool === "create_booking" || tool === "search_resources") && params) {
-    const calResponse = getCalendarToolResponse(tool, params);
+    const calResponse = getCalendarToolResponse(tool, params, calendarData);
     if (calResponse) return calResponse;
 
     // Server-side fallback: no localStorage available for calendar data.
@@ -1782,7 +1813,7 @@ export async function stepSimulation(
 
               // CA3: Simulate tool execution with LLM-generated params
               const llmOutcome = options?.toolMockOutcome ?? "success";
-              const mockResponse = getToolMockResponse(tool, llmOutcome, llmParams);
+              const mockResponse = getToolMockResponse(tool, llmOutcome, llmParams, options?.calendarData);
               const mockDuration = 120 + Math.floor(Math.random() * 380);
               const toolResult = { status: mockResponse.status, ...mockResponse.data };
 
@@ -1890,7 +1921,7 @@ export async function stepSimulation(
 
       // --- Standard mock execution path (flow-driven or hybrid fallback) ---
       const outcome = options?.toolMockOutcome ?? "success";
-      const mockResponse = getToolMockResponse(tool, outcome, params);
+      const mockResponse = getToolMockResponse(tool, outcome, params, options?.calendarData);
       const mockDuration = 120 + Math.floor(Math.random() * 380); // 120-500ms
 
       // CA3: Create and complete execution log

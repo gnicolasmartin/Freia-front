@@ -9,6 +9,7 @@ import { useToolRegistry } from "@/providers/ToolRegistryProvider";
 import { useProducts } from "@/providers/ProductsProvider";
 import { useLLMConfig } from "@/providers/LLMConfigProvider";
 import { useChannels } from "@/providers/ChannelsProvider";
+import { useCalendars } from "@/providers/CalendarsProvider";
 import {
   syncConfigToBackend,
   resetSyncHash,
@@ -28,6 +29,7 @@ export function ConfigSyncProvider({ children }: { children: ReactNode }) {
   const { products, variantTypes, discounts } = useProducts();
   const { getRawKey } = useLLMConfig();
   const { getChannelConfig } = useChannels();
+  const { calendars, resources, bookings, blockedPeriods, minStayRules } = useCalendars();
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCompanyRef = useRef<string | undefined>(undefined);
@@ -66,6 +68,9 @@ export function ConfigSyncProvider({ children }: { children: ReactNode }) {
       businessHoursConfig: getBusinessHoursConfig(),
       openaiApiKey: getRawKey("openai") ?? undefined,
       waCredentials,
+      calendarData: calendars.length > 0
+        ? { calendars, resources, bookings, blocks: blockedPeriods, minStayRules }
+        : undefined,
     };
 
     const result = await syncConfigToBackend(companyId, blob);
@@ -74,7 +79,7 @@ export function ConfigSyncProvider({ children }: { children: ReactNode }) {
     } else if (result.error) {
       console.warn("[ConfigSync] Sync failed:", result.error);
     }
-  }, [agents, flows, routingConfig, policies, tools, products, variantTypes, discounts, getRawKey, getChannelConfig]);
+  }, [agents, flows, routingConfig, policies, tools, products, variantTypes, discounts, getRawKey, getChannelConfig, calendars, resources, bookings, blockedPeriods, minStayRules]);
 
   // Debounced sync on any config change
   useEffect(() => {

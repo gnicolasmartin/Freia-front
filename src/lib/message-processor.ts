@@ -81,6 +81,14 @@ export interface ProcessMessageInput {
    * (which returns defaults on the server where localStorage is unavailable).
    */
   businessHoursConfig?: import("@/types/business-hours").BusinessHoursConfig;
+  /** Calendar data for server-side tool execution. */
+  calendarData?: {
+    calendars: unknown[];
+    resources: unknown[];
+    bookings: unknown[];
+    blocks: unknown[];
+    minStayRules: unknown[];
+  };
 }
 
 export interface ProcessMessageResult {
@@ -285,6 +293,7 @@ export async function processInboundMessage(
     testMode,
     sendFn: customSendFn,
     businessHoursConfig: customBHConfig,
+    calendarData,
   } = input;
 
   const send: SendMessageFn = customSendFn ?? sendWhatsAppMessage;
@@ -406,6 +415,7 @@ export async function processInboundMessage(
 
   const simOptions: SimulationOptions = {
     products: products.length > 0 ? products : undefined,
+    calendarData,
   };
 
   // Attach agent for LLM-powered message generation

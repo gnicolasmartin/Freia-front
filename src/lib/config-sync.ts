@@ -25,6 +25,14 @@ export interface ProcessingConfigBlob {
     phoneNumberId: string;
     accessToken: string;
   };
+  /** Calendar data for server-side tool execution (no localStorage on server). */
+  calendarData?: {
+    calendars: unknown[];
+    resources: unknown[];
+    bookings: unknown[];
+    blocks: unknown[];
+    minStayRules: unknown[];
+  };
 }
 
 // ─── Hash ─────────────────────────────────────────────────────────────────────
