@@ -110,14 +110,32 @@ interface Breadcrumb {
 
 async function saveBreadcrumbs(crumbs: Breadcrumb[]): Promise<void> {
   try {
+    // Read existing log to append (keep last 10 hits)
+    let history: Array<{ time: string; crumbs: Breadcrumb[] }> = [];
+    try {
+      const existing = await fetch(
+        `${API_URL}/processing-config/__webhook_log__`,
+        { signal: AbortSignal.timeout(3_000) }
+      );
+      if (existing.ok) {
+        const data = (await existing.json()) as { config?: { hits?: typeof history } };
+        if (data.config?.hits) {
+          history = data.config.hits;
+        }
+      }
+    } catch {
+      // Ignore — start fresh
+    }
+
+    history.push({ time: new Date().toISOString(), crumbs });
+    // Keep only last 10
+    if (history.length > 10) history = history.slice(-10);
+
     await fetch(`${API_URL}/processing-config/__webhook_log__`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        config: {
-          lastHit: new Date().toISOString(),
-          breadcrumbs: crumbs,
-        },
+        config: { hits: history },
       }),
       signal: AbortSignal.timeout(5_000),
     });

@@ -24,10 +24,12 @@ export async function GET(): Promise<Response> {
       });
     }
 
-    const data = (await res.json()) as { config: unknown };
+    const data = (await res.json()) as { config: { hits?: Array<{ time: string; crumbs: unknown[] }> } };
+    const hits = data.config?.hits ?? [];
     return NextResponse.json({
-      message: "Last webhook hit breadcrumbs",
-      log: data.config,
+      message: `${hits.length} webhook hit(s) recorded`,
+      totalHits: hits.length,
+      hits,
     });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
