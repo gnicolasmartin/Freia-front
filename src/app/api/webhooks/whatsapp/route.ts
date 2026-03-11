@@ -93,14 +93,58 @@ export async function GET(request: NextRequest): Promise<Response> {
   return new NextResponse("Forbidden", { status: 403 });
 }
 
+// ─── Breadcrumb logging (persists to backend for debugging) ─────────────────
+
+interface Breadcrumb {
+  step: string;
+  ts: number;
+  detail?: unknown;
+}
+
+async function saveBreadcrumbs(crumbs: Breadcrumb[]): Promise<void> {
+  try {
+    await fetch(`${API_URL}/processing-config/__webhook_log__`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        config: {
+          lastHit: new Date().toISOString(),
+          breadcrumbs: crumbs,
+        },
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {
+    // Best effort — don't block the webhook
+  }
+}
+
 // ─── POST — Incoming events ──────────────────────────────────────────────────
 
 export async function POST(request: NextRequest): Promise<Response> {
+  const crumbs: Breadcrumb[] = [];
+  const t0 = Date.now();
+
+  crumbs.push({
+    step: "hit",
+    ts: 0,
+    detail: {
+      method: request.method,
+      url: request.url,
+      hasSignature: !!request.headers.get("X-Hub-Signature-256"),
+      userAgent: request.headers.get("User-Agent")?.slice(0, 100),
+      contentType: request.headers.get("Content-Type"),
+    },
+  });
+
   // Read raw body — must happen before any JSON parsing so signature is valid
   let rawBody: string;
   try {
     rawBody = await request.text();
+    crumbs.push({ step: "body_read", ts: Date.now() - t0, detail: { length: rawBody.length } });
   } catch {
+    crumbs.push({ step: "body_read_error", ts: Date.now() - t0 });
+    void saveBreadcrumbs(crumbs);
     return new NextResponse("Bad Request", { status: 400 });
   }
 
@@ -108,7 +152,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   let payload: unknown;
   try {
     payload = JSON.parse(rawBody);
+    crumbs.push({ step: "json_parsed", ts: Date.now() - t0 });
   } catch {
+    crumbs.push({ step: "json_parse_error", ts: Date.now() - t0 });
+    void saveBreadcrumbs(crumbs);
     return new NextResponse("Bad Request: invalid JSON", { status: 400 });
   }
 
@@ -116,21 +163,28 @@ export async function POST(request: NextRequest): Promise<Response> {
   const phoneNumberId = extractPhoneNumberId(payload);
   let companyId: string | undefined;
 
+  crumbs.push({ step: "phone_number_id", ts: Date.now() - t0, detail: phoneNumberId ?? "null" });
+
   if (phoneNumberId) {
     const credentials = await lookupByPhoneNumberId(phoneNumberId);
     if (credentials) {
       companyId = credentials.companyId;
+      crumbs.push({ step: "company_found", ts: Date.now() - t0, detail: companyId });
 
       // Use company-specific app_secret for signature validation if available
       if (credentials.appSecret) {
         const signatureHeader = request.headers.get("X-Hub-Signature-256") ?? "";
         if (!verifySignature(rawBody, signatureHeader, credentials.appSecret)) {
           console.warn(`[WhatsApp Webhook] Signature validation failed for company=${companyId}`);
+          crumbs.push({ step: "sig_fail_company", ts: Date.now() - t0 });
+          void saveBreadcrumbs(crumbs);
           return new NextResponse("Unauthorized", { status: 401 });
         }
+        crumbs.push({ step: "sig_ok_company", ts: Date.now() - t0 });
       }
     } else {
       console.warn(`[WhatsApp Webhook] No company found for phone_number_id=${phoneNumberId}`);
+      crumbs.push({ step: "no_company_for_phone", ts: Date.now() - t0 });
     }
   }
 
@@ -141,13 +195,19 @@ export async function POST(request: NextRequest): Promise<Response> {
       const signatureHeader = request.headers.get("X-Hub-Signature-256") ?? "";
       if (!verifySignature(rawBody, signatureHeader, appSecret)) {
         console.warn("[WhatsApp Webhook] Signature validation failed — possible spoofed request.");
+        crumbs.push({ step: "sig_fail_global", ts: Date.now() - t0 });
+        void saveBreadcrumbs(crumbs);
         return new NextResponse("Unauthorized", { status: 401 });
       }
+      crumbs.push({ step: "sig_ok_global", ts: Date.now() - t0 });
+    } else {
+      crumbs.push({ step: "sig_skip_no_secret", ts: Date.now() - t0 });
     }
   }
 
   // Normalize to internal channel events
   const events = parseWhatsAppPayload(payload);
+  crumbs.push({ step: "events_parsed", ts: Date.now() - t0, detail: { count: events.length, types: events.map(e => e.type) } });
 
   // Attach companyId to events
   if (companyId) {
@@ -190,9 +250,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     (e): e is MessageReceivedEvent => e.type === "channel.message.received"
   );
 
+  crumbs.push({ step: "message_events", ts: Date.now() - t0, detail: { count: messageEvents.length } });
+
   if (messageEvents.length > 0) {
     // Resolve company for config + credentials
     const resolvedCompanyId = companyId ?? process.env.FREIA_COMPANY_ID ?? "default";
+    crumbs.push({ step: "resolved_company", ts: Date.now() - t0, detail: resolvedCompanyId });
 
     // Fetch processing config from backend
     let configBlob: Record<string, unknown> | null = null;
@@ -210,6 +273,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     } catch (err) {
       console.warn("[WhatsApp Webhook] Failed to fetch processing config:", err);
     }
+
+    crumbs.push({ step: "config_fetched", ts: Date.now() - t0, detail: { hasConfig: !!configBlob } });
 
     if (configBlob) {
       // Resolve WhatsApp credentials for sending
@@ -239,6 +304,8 @@ export async function POST(request: NextRequest): Promise<Response> {
         waPhoneNumberId = waPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
         waAccessToken = process.env.WHATSAPP_ACCESS_TOKEN || "";
       }
+
+      crumbs.push({ step: "wa_creds", ts: Date.now() - t0, detail: { hasPhone: !!waPhoneNumberId, hasToken: !!waAccessToken } });
 
       if (waPhoneNumberId && waAccessToken) {
         // Fetch active conversations from backend
@@ -388,5 +455,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
   }
 
+  crumbs.push({ step: "done", ts: Date.now() - t0 });
+  void saveBreadcrumbs(crumbs);
   return new NextResponse("OK", { status: 200 });
 }
