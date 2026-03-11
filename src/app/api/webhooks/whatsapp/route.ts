@@ -14,7 +14,6 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
-import { after } from "next/server";
 import {
   verifyHandshake,
   verifySignature,
@@ -158,45 +157,41 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
   }
 
-  // Respond 200 to Meta immediately — ingest + process in background.
-  after(async () => {
-    // ── Step 1: Ingest events into backend DB ───────────────────────────────
-    let ingested = 0;
-    for (const event of events) {
-      try {
-        const res = await fetchWithRetry(`${API_URL}/events/ingest`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(event),
-        });
+  // ── Step 1: Ingest events into backend DB ───────────────────────────────
+  let ingested = 0;
+  for (const event of events) {
+    try {
+      const res = await fetchWithRetry(`${API_URL}/events/ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(event),
+      });
 
-        if (res.ok) {
-          const data = (await res.json()) as { stored: boolean };
-          if (data.stored) ingested++;
-        } else {
-          console.warn(`[WhatsApp Webhook] Backend ingest failed: ${res.status}`);
-        }
-      } catch (err) {
-        console.error("[WhatsApp Webhook] Failed to send event to backend:", err);
+      if (res.ok) {
+        const data = (await res.json()) as { stored: boolean };
+        if (data.stored) ingested++;
+      } else {
+        console.warn(`[WhatsApp Webhook] Backend ingest failed: ${res.status}`);
       }
+    } catch (err) {
+      console.error("[WhatsApp Webhook] Failed to send event to backend:", err);
     }
+  }
 
-    if (ingested > 0) {
-      console.info(
-        `[WhatsApp Webhook] Ingested ${ingested} event(s) for company=${companyId ?? "unknown"}:`,
-        events.map((e) => `${e.type}(${e.id.slice(0, 8)})`).join(", ")
-      );
-    }
-
-    // ── Step 2: Server-side processing of message events ────────────────────
-    const messageEvents = events.filter(
-      (e): e is MessageReceivedEvent => e.type === "channel.message.received"
+  if (ingested > 0) {
+    console.info(
+      `[WhatsApp Webhook] Ingested ${ingested} event(s) for company=${companyId ?? "unknown"}:`,
+      events.map((e) => `${e.type}(${e.id.slice(0, 8)})`).join(", ")
     );
-    if (messageEvents.length === 0) return;
+  }
 
+  // ── Step 2: Server-side processing of message events ────────────────────
+  const messageEvents = events.filter(
+    (e): e is MessageReceivedEvent => e.type === "channel.message.received"
+  );
+
+  if (messageEvents.length > 0) {
     // Resolve company for config + credentials
-    // Fallback: env var for single-tenant deployments where channel_configs
-    // table may not have entries (channels stored in browser localStorage).
     const resolvedCompanyId = companyId ?? process.env.FREIA_COMPANY_ID ?? "default";
 
     // Fetch processing config from backend
@@ -216,184 +211,182 @@ export async function POST(request: NextRequest): Promise<Response> {
       console.warn("[WhatsApp Webhook] Failed to fetch processing config:", err);
     }
 
-    if (!configBlob) {
-      console.warn(
-        `[WhatsApp Webhook] No processing config for company=${resolvedCompanyId}, skipping server processing`
-      );
-      return;
-    }
+    if (configBlob) {
+      // Resolve WhatsApp credentials for sending
+      let waPhoneNumberId = phoneNumberId ?? "";
+      let waAccessToken = "";
 
-    // Resolve WhatsApp credentials for sending
-    let waPhoneNumberId = phoneNumberId ?? "";
-    let waAccessToken = "";
-
-    // 1. Try multi-tenant lookup from backend channel_configs table
-    if (companyId) {
-      const creds = await lookupByCompanyId(companyId);
-      if (creds) {
-        waPhoneNumberId = creds.phoneNumberId;
-        waAccessToken = creds.accessToken;
-      }
-    }
-
-    // 2. Fallback: credentials synced in config blob (from browser localStorage)
-    if (!waAccessToken && configBlob.waCredentials) {
-      const synced = configBlob.waCredentials as { phoneNumberId?: string; accessToken?: string };
-      if (synced.phoneNumberId && synced.accessToken) {
-        waPhoneNumberId = synced.phoneNumberId;
-        waAccessToken = synced.accessToken;
-      }
-    }
-
-    // 3. Fallback: env vars
-    if (!waAccessToken) {
-      waPhoneNumberId = waPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
-      waAccessToken = process.env.WHATSAPP_ACCESS_TOKEN || "";
-    }
-
-    if (!waPhoneNumberId || !waAccessToken) {
-      console.warn("[WhatsApp Webhook] No WA credentials for server-side send, skipping");
-      return;
-    }
-
-    // Fetch active conversations from backend
-    const activeConversations = new Map<string, ActiveConversation>();
-    try {
-      const convRes = await fetchWithRetry(
-        `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}`,
-        { method: "GET" }
-      );
-      if (convRes.ok) {
-        const convData = (await convRes.json()) as {
-          conversations: Array<{ contactPhone: string; snapshot: ActiveConversation }>;
-        };
-        for (const c of convData.conversations) {
-          if (c.contactPhone && c.snapshot) {
-            activeConversations.set(c.contactPhone, c.snapshot);
-          }
+      // 1. Try multi-tenant lookup from backend channel_configs table
+      if (companyId) {
+        const creds = await lookupByCompanyId(companyId);
+        if (creds) {
+          waPhoneNumberId = creds.phoneNumberId;
+          waAccessToken = creds.accessToken;
         }
       }
-    } catch (err) {
-      console.warn("[WhatsApp Webhook] Failed to fetch conversations:", err);
-    }
 
-    const sendFn = buildServerSendFn(waPhoneNumberId, waAccessToken);
-
-    // Process each message event
-    for (const event of messageEvents) {
-      // Atomically claim the event so no other processor handles it
-      let claimed = false;
-      try {
-        const claimRes = await fetchWithRetry(
-          `${API_URL}/events/claim/${encodeURIComponent(event.messageId)}`,
-          { method: "POST", headers: { "Content-Type": "application/json" } }
-        );
-        if (claimRes.ok) {
-          const claimData = (await claimRes.json()) as { claimed: boolean };
-          claimed = claimData.claimed;
+      // 2. Fallback: credentials synced in config blob (from browser localStorage)
+      if (!waAccessToken && configBlob.waCredentials) {
+        const synced = configBlob.waCredentials as { phoneNumberId?: string; accessToken?: string };
+        if (synced.phoneNumberId && synced.accessToken) {
+          waPhoneNumberId = synced.phoneNumberId;
+          waAccessToken = synced.accessToken;
         }
-      } catch {
-        // Claim failed — skip
       }
 
-      if (!claimed) {
-        console.info(`[WhatsApp Webhook] Could not claim event ${event.messageId.slice(0, 12)}, skipping`);
-        continue;
+      // 3. Fallback: env vars
+      if (!waAccessToken) {
+        waPhoneNumberId = waPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
+        waAccessToken = process.env.WHATSAPP_ACCESS_TOKEN || "";
       }
 
-      try {
-        const result = await processInboundMessage({
-          event,
-          activeConversations,
-          routingConfig: configBlob.routingConfig as import("@/types/routing").RoutingConfig,
-          agents: (configBlob.agents ?? []) as import("@/types/agent").Agent[],
-          flows: (configBlob.flows ?? []) as import("@/types/flow").Flow[],
-          policies: (configBlob.policies ?? []) as import("@/types/policy").Policy[],
-          tools: (configBlob.tools ?? []) as import("@/types/tool-registry").ToolDefinition[],
-          products: (configBlob.products ?? []) as Record<string, unknown>[],
-          openaiApiKey: (configBlob.openaiApiKey as string) ?? undefined,
-          waCredentials: {
-            phoneNumberId: waPhoneNumberId,
-            accessToken: waAccessToken,
-            companyId,
-          },
-          testMode: false,
-          sendFn,
-          businessHoursConfig: configBlob.businessHoursConfig as
-            | import("@/types/business-hours").BusinessHoursConfig
-            | undefined,
-        });
-
-        if (result.success) {
-          // Save updated conversation to backend
-          if (result.updatedConversation) {
-            activeConversations.set(event.from, result.updatedConversation);
-            try {
-              await fetchWithRetry(
-                `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}/${encodeURIComponent(event.from)}`,
-                {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ snapshot: result.updatedConversation }),
-                }
-              );
-            } catch (err) {
-              console.warn("[WhatsApp Webhook] Failed to save conversation:", err);
+      if (waPhoneNumberId && waAccessToken) {
+        // Fetch active conversations from backend
+        const activeConversations = new Map<string, ActiveConversation>();
+        try {
+          const convRes = await fetchWithRetry(
+            `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}`,
+            { method: "GET" }
+          );
+          if (convRes.ok) {
+            const convData = (await convRes.json()) as {
+              conversations: Array<{ contactPhone: string; snapshot: ActiveConversation }>;
+            };
+            for (const c of convData.conversations) {
+              if (c.contactPhone && c.snapshot) {
+                activeConversations.set(c.contactPhone, c.snapshot);
+              }
             }
-          } else if (result.conversationEnded) {
-            activeConversations.delete(event.from);
+          }
+        } catch (err) {
+          console.warn("[WhatsApp Webhook] Failed to fetch conversations:", err);
+        }
+
+        const sendFn = buildServerSendFn(waPhoneNumberId, waAccessToken);
+
+        // Process each message event
+        for (const event of messageEvents) {
+          // Atomically claim the event so no other processor handles it
+          let claimed = false;
+          try {
+            const claimRes = await fetchWithRetry(
+              `${API_URL}/events/claim/${encodeURIComponent(event.messageId)}`,
+              { method: "POST", headers: { "Content-Type": "application/json" } }
+            );
+            if (claimRes.ok) {
+              const claimData = (await claimRes.json()) as { claimed: boolean };
+              claimed = claimData.claimed;
+            }
+          } catch {
+            // Claim failed — skip
+          }
+
+          if (!claimed) {
+            console.info(`[WhatsApp Webhook] Could not claim event ${event.messageId.slice(0, 12)}, skipping`);
+            continue;
+          }
+
+          try {
+            const result = await processInboundMessage({
+              event,
+              activeConversations,
+              routingConfig: configBlob.routingConfig as import("@/types/routing").RoutingConfig,
+              agents: (configBlob.agents ?? []) as import("@/types/agent").Agent[],
+              flows: (configBlob.flows ?? []) as import("@/types/flow").Flow[],
+              policies: (configBlob.policies ?? []) as import("@/types/policy").Policy[],
+              tools: (configBlob.tools ?? []) as import("@/types/tool-registry").ToolDefinition[],
+              products: (configBlob.products ?? []) as Record<string, unknown>[],
+              openaiApiKey: (configBlob.openaiApiKey as string) ?? undefined,
+              waCredentials: {
+                phoneNumberId: waPhoneNumberId,
+                accessToken: waAccessToken,
+                companyId,
+              },
+              testMode: false,
+              sendFn,
+              businessHoursConfig: configBlob.businessHoursConfig as
+                | import("@/types/business-hours").BusinessHoursConfig
+                | undefined,
+            });
+
+            if (result.success) {
+              // Save updated conversation to backend
+              if (result.updatedConversation) {
+                activeConversations.set(event.from, result.updatedConversation);
+                try {
+                  await fetchWithRetry(
+                    `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}/${encodeURIComponent(event.from)}`,
+                    {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ snapshot: result.updatedConversation }),
+                    }
+                  );
+                } catch (err) {
+                  console.warn("[WhatsApp Webhook] Failed to save conversation:", err);
+                }
+              } else if (result.conversationEnded) {
+                activeConversations.delete(event.from);
+                try {
+                  await fetchWithRetry(
+                    `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}/${encodeURIComponent(event.from)}`,
+                    { method: "DELETE" }
+                  );
+                } catch {
+                  // Best effort
+                }
+              }
+
+              // Mark event as processed
+              try {
+                await fetchWithRetry(
+                  `${API_URL}/events/mark-processed/${encodeURIComponent(event.messageId)}`,
+                  { method: "POST", headers: { "Content-Type": "application/json" } }
+                );
+              } catch {
+                // Best effort
+              }
+
+              console.info(
+                `[WhatsApp Webhook] Server processed: from=${event.from}, ` +
+                  `agent=${result.agentName ?? "none"}, ` +
+                  `responses=${result.responseTexts.length}, ` +
+                  `ended=${result.conversationEnded ?? false}`
+              );
+            } else {
+              console.warn(`[WhatsApp Webhook] Server processing failed: ${result.error}`);
+              // Release claim
+              try {
+                await fetchWithRetry(
+                  `${API_URL}/events/release/${encodeURIComponent(event.messageId)}`,
+                  { method: "POST", headers: { "Content-Type": "application/json" } }
+                );
+              } catch {
+                // Best effort
+              }
+            }
+          } catch (err) {
+            console.error("[WhatsApp Webhook] Server processing error:", err);
+            // Release claim on error
             try {
               await fetchWithRetry(
-                `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}/${encodeURIComponent(event.from)}`,
-                { method: "DELETE" }
+                `${API_URL}/events/release/${encodeURIComponent(event.messageId)}`,
+                { method: "POST", headers: { "Content-Type": "application/json" } }
               );
             } catch {
               // Best effort
             }
           }
-
-          // Mark event as processed
-          try {
-            await fetchWithRetry(
-              `${API_URL}/events/mark-processed/${encodeURIComponent(event.messageId)}`,
-              { method: "POST", headers: { "Content-Type": "application/json" } }
-            );
-          } catch {
-            // Best effort
-          }
-
-          console.info(
-            `[WhatsApp Webhook] Server processed: from=${event.from}, ` +
-              `agent=${result.agentName ?? "none"}, ` +
-              `responses=${result.responseTexts.length}, ` +
-              `ended=${result.conversationEnded ?? false}`
-          );
-        } else {
-          console.warn(`[WhatsApp Webhook] Server processing failed: ${result.error}`);
-          // Release claim
-          try {
-            await fetchWithRetry(
-              `${API_URL}/events/release/${encodeURIComponent(event.messageId)}`,
-              { method: "POST", headers: { "Content-Type": "application/json" } }
-            );
-          } catch {
-            // Best effort
-          }
         }
-      } catch (err) {
-        console.error("[WhatsApp Webhook] Server processing error:", err);
-        // Release claim on error
-        try {
-          await fetchWithRetry(
-            `${API_URL}/events/release/${encodeURIComponent(event.messageId)}`,
-            { method: "POST", headers: { "Content-Type": "application/json" } }
-          );
-        } catch {
-          // Best effort
-        }
+      } else {
+        console.warn("[WhatsApp Webhook] No WA credentials for server-side send, skipping");
       }
+    } else {
+      console.warn(
+        `[WhatsApp Webhook] No processing config for company=${resolvedCompanyId}, skipping`
+      );
     }
-  });
+  }
 
   return new NextResponse("OK", { status: 200 });
 }
