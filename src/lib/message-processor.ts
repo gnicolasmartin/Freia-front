@@ -259,9 +259,12 @@ function buildInteractivePayload(
   };
 }
 
-// ─── Max steps guard ─────────────────────────────────────────────────────────
+// ─── Guards ──────────────────────────────────────────────────────────────────
 
 const MAX_STEPS_PER_MESSAGE = 50;
+
+/** Conversations older than this are expired and restarted from scratch. */
+const CONVERSATION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // ─── Main processor ──────────────────────────────────────────────────────────
 
@@ -301,7 +304,19 @@ export async function processInboundMessage(
   // ── 1. Check for existing active conversation ──────────────────────────────
 
   const existing = activeConversations.get(contactPhone);
-  if (existing && existing.simulationState.status === "waiting_input") {
+
+  // Expire stale conversations — browser kept them in-memory (lost on refresh),
+  // but server persists them in DB, so we need an explicit timeout.
+  const isExpired = existing
+    ? (Date.now() - new Date(existing.lastActivityAt).getTime()) > CONVERSATION_TIMEOUT_MS
+    : false;
+
+  if (isExpired && existing) {
+    console.info(`[MessageProcessor] Conversation for ${contactPhone} expired (last activity: ${existing.lastActivityAt}), starting fresh`);
+    activeConversations.delete(contactPhone);
+  }
+
+  if (existing && !isExpired && existing.simulationState.status === "waiting_input") {
     // Resolve interactive button/list replies to the actual option value
     let resolvedInput = messageText;
     const waiting = existing.simulationState.waitingForInput;
@@ -476,16 +491,15 @@ export async function processInboundMessage(
       ? buildInteractivePayload(simState.waitingForInput)
       : undefined;
 
-  // Combine all response texts into a single WhatsApp message to avoid
-  // sending multiple messages when the flow generates several bot responses
-  // in a single pass (e.g. welcome + closing).
-  if (responseTexts.length > 0) {
-    const combinedText = responseTexts.join("\n\n");
-    const sendResult = await send(contactPhone, combinedText, waCredentials, testMode, interactivePayload);
+  for (let i = 0; i < responseTexts.length; i++) {
+    const text = responseTexts[i];
+    const isLast = i === responseTexts.length - 1;
+    const interactive = isLast ? interactivePayload : undefined;
+    const sendResult = await send(contactPhone, text, waCredentials, testMode, interactive);
     if (!sendResult.success) {
-      console.error(`[MessageProcessor] Failed to send: ${sendResult.error}`);
+      console.error(`[MessageProcessor] Failed to send message ${i + 1}/${responseTexts.length}: ${sendResult.error}`);
     } else {
-      console.info(`[MessageProcessor] Sent to ${contactPhone}: ${sendResult.messageId} (${responseTexts.length} texts combined, interactive=${interactivePayload?.type ?? "none"})`);
+      console.info(`[MessageProcessor] Sent ${i + 1}/${responseTexts.length} to ${contactPhone}: ${sendResult.messageId} (interactive=${interactive?.type ?? "none"})`);
     }
   }
 
@@ -575,12 +589,13 @@ async function resumeConversation(
       ? buildInteractivePayload(simState.waitingForInput)
       : undefined;
 
-  // Combine all response texts into a single WhatsApp message
-  if (responseTexts.length > 0) {
-    const combinedText = responseTexts.join("\n\n");
-    const sendResult = await send(conversation.contactPhone, combinedText, waCredentials, testMode, resumeInteractive);
+  for (let i = 0; i < responseTexts.length; i++) {
+    const text = responseTexts[i];
+    const isLast = i === responseTexts.length - 1;
+    const interactive = isLast ? resumeInteractive : undefined;
+    const sendResult = await send(conversation.contactPhone, text, waCredentials, testMode, interactive);
     if (!sendResult.success) {
-      console.error(`[MessageProcessor] Failed to send: ${sendResult.error}`);
+      console.error(`[MessageProcessor] Failed to send message ${i + 1}/${responseTexts.length}: ${sendResult.error}`);
     }
   }
 
