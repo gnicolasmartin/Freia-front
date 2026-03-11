@@ -21,7 +21,11 @@ import {
   parseWhatsAppPayload,
   extractPhoneNumberId,
 } from "@/lib/whatsapp-webhook";
-import { lookupByPhoneNumberId } from "@/lib/credential-lookup";
+import { lookupByPhoneNumberId, lookupByCompanyId } from "@/lib/credential-lookup";
+import type { MessageReceivedEvent } from "@/types/webhook-event";
+import type { ActiveConversation } from "@/lib/message-processor";
+import { processInboundMessage } from "@/lib/message-processor";
+import { buildServerSendFn } from "@/lib/server-send-fn";
 
 // Allow up to 55s for cold-start backends (Render free tier sleeps after 15 min)
 export const maxDuration = 55;
@@ -184,10 +188,199 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
-    // Server-side processing is disabled for now.
-    // The browser handles message processing via polling (MessageProcessorProvider).
-    // TODO: Re-enable once bidirectional conversation state sync is implemented
-    // to prevent race conditions between server and browser processing paths.
+    // ── Step 2: Server-side processing of message events ────────────────────
+    const messageEvents = events.filter(
+      (e): e is MessageReceivedEvent => e.type === "channel.message.received"
+    );
+    if (messageEvents.length === 0) return;
+
+    // Resolve company for config + credentials
+    const resolvedCompanyId = companyId ?? "default";
+
+    // Fetch processing config from backend
+    let configBlob: Record<string, unknown> | null = null;
+    try {
+      const configRes = await fetchWithRetry(
+        `${API_URL}/processing-config/${encodeURIComponent(resolvedCompanyId)}`,
+        { method: "GET" }
+      );
+      if (configRes.ok) {
+        const configData = (await configRes.json()) as {
+          config: Record<string, unknown> | null;
+        };
+        configBlob = configData.config;
+      }
+    } catch (err) {
+      console.warn("[WhatsApp Webhook] Failed to fetch processing config:", err);
+    }
+
+    if (!configBlob) {
+      console.warn(
+        `[WhatsApp Webhook] No processing config for company=${resolvedCompanyId}, skipping server processing`
+      );
+      return;
+    }
+
+    // Resolve WhatsApp credentials for sending
+    let waPhoneNumberId = phoneNumberId ?? "";
+    let waAccessToken = "";
+
+    if (companyId) {
+      const creds = await lookupByCompanyId(companyId);
+      if (creds) {
+        waPhoneNumberId = creds.phoneNumberId;
+        waAccessToken = creds.accessToken;
+      }
+    }
+
+    // Fallback to env vars
+    if (!waAccessToken) {
+      waPhoneNumberId = waPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
+      waAccessToken = process.env.WHATSAPP_ACCESS_TOKEN || "";
+    }
+
+    if (!waPhoneNumberId || !waAccessToken) {
+      console.warn("[WhatsApp Webhook] No WA credentials for server-side send, skipping");
+      return;
+    }
+
+    // Fetch active conversations from backend
+    const activeConversations = new Map<string, ActiveConversation>();
+    try {
+      const convRes = await fetchWithRetry(
+        `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}`,
+        { method: "GET" }
+      );
+      if (convRes.ok) {
+        const convData = (await convRes.json()) as {
+          conversations: Array<{ contactPhone: string; snapshot: ActiveConversation }>;
+        };
+        for (const c of convData.conversations) {
+          if (c.contactPhone && c.snapshot) {
+            activeConversations.set(c.contactPhone, c.snapshot);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[WhatsApp Webhook] Failed to fetch conversations:", err);
+    }
+
+    const sendFn = buildServerSendFn(waPhoneNumberId, waAccessToken);
+
+    // Process each message event
+    for (const event of messageEvents) {
+      // Atomically claim the event so no other processor handles it
+      let claimed = false;
+      try {
+        const claimRes = await fetchWithRetry(
+          `${API_URL}/events/claim/${encodeURIComponent(event.messageId)}`,
+          { method: "POST", headers: { "Content-Type": "application/json" } }
+        );
+        if (claimRes.ok) {
+          const claimData = (await claimRes.json()) as { claimed: boolean };
+          claimed = claimData.claimed;
+        }
+      } catch {
+        // Claim failed — skip
+      }
+
+      if (!claimed) {
+        console.info(`[WhatsApp Webhook] Could not claim event ${event.messageId.slice(0, 12)}, skipping`);
+        continue;
+      }
+
+      try {
+        const result = await processInboundMessage({
+          event,
+          activeConversations,
+          routingConfig: configBlob.routingConfig as import("@/types/routing").RoutingConfig,
+          agents: (configBlob.agents ?? []) as import("@/types/agent").Agent[],
+          flows: (configBlob.flows ?? []) as import("@/types/flow").Flow[],
+          policies: (configBlob.policies ?? []) as import("@/types/policy").Policy[],
+          tools: (configBlob.tools ?? []) as import("@/types/tool-registry").ToolDefinition[],
+          products: (configBlob.products ?? []) as Record<string, unknown>[],
+          openaiApiKey: (configBlob.openaiApiKey as string) ?? undefined,
+          waCredentials: {
+            phoneNumberId: waPhoneNumberId,
+            accessToken: waAccessToken,
+            companyId,
+          },
+          testMode: false,
+          sendFn,
+          businessHoursConfig: configBlob.businessHoursConfig as
+            | import("@/types/business-hours").BusinessHoursConfig
+            | undefined,
+        });
+
+        if (result.success) {
+          // Save updated conversation to backend
+          if (result.updatedConversation) {
+            activeConversations.set(event.from, result.updatedConversation);
+            try {
+              await fetchWithRetry(
+                `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}/${encodeURIComponent(event.from)}`,
+                {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ snapshot: result.updatedConversation }),
+                }
+              );
+            } catch (err) {
+              console.warn("[WhatsApp Webhook] Failed to save conversation:", err);
+            }
+          } else if (result.conversationEnded) {
+            activeConversations.delete(event.from);
+            try {
+              await fetchWithRetry(
+                `${API_URL}/conversations/active/${encodeURIComponent(resolvedCompanyId)}/${encodeURIComponent(event.from)}`,
+                { method: "DELETE" }
+              );
+            } catch {
+              // Best effort
+            }
+          }
+
+          // Mark event as processed
+          try {
+            await fetchWithRetry(
+              `${API_URL}/events/mark-processed/${encodeURIComponent(event.messageId)}`,
+              { method: "POST", headers: { "Content-Type": "application/json" } }
+            );
+          } catch {
+            // Best effort
+          }
+
+          console.info(
+            `[WhatsApp Webhook] Server processed: from=${event.from}, ` +
+              `agent=${result.agentName ?? "none"}, ` +
+              `responses=${result.responseTexts.length}, ` +
+              `ended=${result.conversationEnded ?? false}`
+          );
+        } else {
+          console.warn(`[WhatsApp Webhook] Server processing failed: ${result.error}`);
+          // Release claim
+          try {
+            await fetchWithRetry(
+              `${API_URL}/events/release/${encodeURIComponent(event.messageId)}`,
+              { method: "POST", headers: { "Content-Type": "application/json" } }
+            );
+          } catch {
+            // Best effort
+          }
+        }
+      } catch (err) {
+        console.error("[WhatsApp Webhook] Server processing error:", err);
+        // Release claim on error
+        try {
+          await fetchWithRetry(
+            `${API_URL}/events/release/${encodeURIComponent(event.messageId)}`,
+            { method: "POST", headers: { "Content-Type": "application/json" } }
+          );
+        } catch {
+          // Best effort
+        }
+      }
+    }
   });
 
   return new NextResponse("OK", { status: 200 });
