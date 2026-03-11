@@ -417,7 +417,12 @@ export async function POST(request: NextRequest): Promise<Response> {
           policies: (configBlob.policies ?? []) as import("@/types/policy").Policy[],
           tools: (configBlob.tools ?? []) as import("@/types/tool-registry").ToolDefinition[],
           products: (configBlob.products ?? []) as Record<string, unknown>[],
-          openaiApiKey: (configBlob.openaiApiKey as string) ?? undefined,
+          // Intentionally omit openaiApiKey for server-side processing.
+          // With LLM enabled (hybrid mode), toolcall nodes hallucinate data
+          // (e.g. fake phone numbers) and message nodes get unwanted LLM
+          // reformulation. Without it, templates are used as-is and tools
+          // use standard mock execution.
+          openaiApiKey: undefined,
           waCredentials: {
             phoneNumberId: waPhoneNumberId,
             accessToken: waAccessToken,

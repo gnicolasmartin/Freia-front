@@ -478,6 +478,21 @@ function getToolMockResponse(
   if (outcome === "success" && (tool === "calendar_check" || tool === "create_booking" || tool === "search_resources") && params) {
     const calResponse = getCalendarToolResponse(tool, params);
     if (calResponse) return calResponse;
+
+    // Server-side fallback: no localStorage available for calendar data.
+    // Return a needs_info response so formatToolResultForChat generates
+    // a clean "tell me the dates" message instead of showing broken mock data.
+    if (typeof window === "undefined") {
+      if (tool === "calendar_check") {
+        return { status: "needs_info", data: { message: "Indicame las fechas que te interesan y la quinta, y te confirmo la disponibilidad." } };
+      }
+      if (tool === "search_resources") {
+        return { status: "found", data: { matches: [], suggestions: [], message: "Para buscar la quinta ideal, contame qué necesitás: cantidad de personas, fechas, y qué comodidades son importantes para vos." } };
+      }
+      if (tool === "create_booking") {
+        return { status: "needs_info", data: { message: "Para crear tu reserva necesito: la quinta que elegiste, las fechas, y tu nombre. ¿Me pasás esos datos?" } };
+      }
+    }
   }
 
   const toolMocks = TOOL_MOCK_RESPONSES[tool];
@@ -652,6 +667,9 @@ function formatToolResultForChat(
     if (response.status === "confirmed") {
       const code = response.data.confirmationCode as string || "";
       return `✅ *¡Reserva confirmada!*\nTu código de confirmación es: *${code}*`;
+    }
+    if (response.status === "needs_info") {
+      return String(response.data.message || "Necesito más datos para crear la reserva.");
     }
     if (response.status === "error") {
       return `❌ ${response.data.message || "No se pudo crear la reserva."}`;
