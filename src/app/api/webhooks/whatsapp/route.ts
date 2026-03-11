@@ -388,9 +388,11 @@ export async function POST(request: NextRequest): Promise<Response> {
               const claimData = (await claimRes.json()) as { claimed: boolean };
               claimed = claimData.claimed;
             }
-          } catch {
-            // Claim failed — skip
+          } catch (err) {
+            crumbs.push({ step: "claim_error", ts: Date.now() - t0, detail: String(err) });
           }
+
+          crumbs.push({ step: "claim", ts: Date.now() - t0, detail: { claimed, messageId: event.messageId.slice(0, 20) } });
 
           if (!claimed) {
             console.info(`[WhatsApp Webhook] Could not claim event ${event.messageId.slice(0, 12)}, skipping`);
@@ -418,6 +420,22 @@ export async function POST(request: NextRequest): Promise<Response> {
               businessHoursConfig: configBlob.businessHoursConfig as
                 | import("@/types/business-hours").BusinessHoursConfig
                 | undefined,
+            });
+
+            crumbs.push({
+              step: "process_result",
+              ts: Date.now() - t0,
+              detail: {
+                success: result.success,
+                error: result.error,
+                agentName: result.agentName,
+                flowId: result.flowId?.slice(0, 12),
+                responses: result.responseTexts.length,
+                responseSnippets: result.responseTexts.map(t => t.slice(0, 80)),
+                conversationEnded: result.conversationEnded,
+                hasUpdatedConversation: !!result.updatedConversation,
+                simStatus: result.updatedConversation?.simulationState?.status,
+              },
             });
 
             if (result.success) {
