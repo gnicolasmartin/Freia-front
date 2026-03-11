@@ -227,6 +227,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     let waPhoneNumberId = phoneNumberId ?? "";
     let waAccessToken = "";
 
+    // 1. Try multi-tenant lookup from backend channel_configs table
     if (companyId) {
       const creds = await lookupByCompanyId(companyId);
       if (creds) {
@@ -235,7 +236,16 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
     }
 
-    // Fallback to env vars
+    // 2. Fallback: credentials synced in config blob (from browser localStorage)
+    if (!waAccessToken && configBlob.waCredentials) {
+      const synced = configBlob.waCredentials as { phoneNumberId?: string; accessToken?: string };
+      if (synced.phoneNumberId && synced.accessToken) {
+        waPhoneNumberId = synced.phoneNumberId;
+        waAccessToken = synced.accessToken;
+      }
+    }
+
+    // 3. Fallback: env vars
     if (!waAccessToken) {
       waPhoneNumberId = waPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
       waAccessToken = process.env.WHATSAPP_ACCESS_TOKEN || "";

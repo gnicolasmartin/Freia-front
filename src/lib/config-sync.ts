@@ -20,6 +20,11 @@ export interface ProcessingConfigBlob {
   routingConfig: unknown;
   businessHoursConfig: unknown;
   openaiApiKey?: string;
+  /** WhatsApp credentials for server-side sending (multi-tenant). */
+  waCredentials?: {
+    phoneNumberId: string;
+    accessToken: string;
+  };
 }
 
 // ─── Hash ─────────────────────────────────────────────────────────────────────
