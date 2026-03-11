@@ -131,8 +131,8 @@ async function saveBreadcrumbs(crumbs: Breadcrumb[]): Promise<void> {
     }
 
     history.push({ time: new Date().toISOString(), crumbs });
-    // Keep only last 10
-    if (history.length > 10) history = history.slice(-10);
+    // Keep only last 30
+    if (history.length > 30) history = history.slice(-30);
 
     await fetch(`${API_URL}/processing-config/__webhook_log__`, {
       method: "PUT",
@@ -383,6 +383,17 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     const sendFn = buildServerSendFn(waPhoneNumberId, waAccessToken);
 
+    crumbs.push({
+      step: "conversations_loaded",
+      ts: Date.now() - t0,
+      detail: {
+        count: activeConversations.size,
+        phones: [...activeConversations.keys()].map(p => p.slice(-4)),
+        hasOpenaiKeyInConfig: !!configBlob.openaiApiKey,
+        codeVersion: "v3",
+      },
+    });
+
     // Process each message event
     for (const event of messageEvents) {
       // Atomically claim the event so no other processor handles it
@@ -435,10 +446,18 @@ export async function POST(request: NextRequest): Promise<Response> {
             | undefined,
         });
 
+        // Check if conversation was resumed (had existing state)
+        const convForPhone = activeConversations.get(event.from);
+
         crumbs.push({
           step: "process_result",
           ts: Date.now() - t0,
           detail: {
+            codeVersion: "v3",
+            openaiKeyPassed: "undefined",
+            hadExistingConv: !!convForPhone,
+            existingConvAgent: convForPhone?.simulationOptions?.agent ? "SET" : "none",
+            existingConvApiKey: convForPhone?.simulationOptions?.agentApiKey ? "SET" : "none",
             success: result.success,
             error: result.error,
             agentName: result.agentName,
@@ -526,5 +545,5 @@ export async function POST(request: NextRequest): Promise<Response> {
   });
 
   // Respond 200 immediately — Meta won't retry
-  return new NextResponse("OK", { status: 200 });
+  return new NextResponse("OK v3", { status: 200 });
 }

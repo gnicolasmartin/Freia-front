@@ -337,7 +337,12 @@ export async function processInboundMessage(
       }
     }
 
-    console.info(`[MessageProcessor] Resuming conversation for ${contactPhone} (agent: ${existing.agentName}), input: "${resolvedInput}"`);
+    console.info(
+      `[MessageProcessor] Resuming conversation for ${contactPhone} (agent: ${existing.agentName}), ` +
+      `input: "${resolvedInput}", ` +
+      `simOptions.hasAgent=${!!existing.simulationOptions?.agent}, ` +
+      `simOptions.hasApiKey=${!!existing.simulationOptions?.agentApiKey}`
+    );
     return resumeConversation(existing, resolvedInput, waCredentials, testMode, send);
   }
 
