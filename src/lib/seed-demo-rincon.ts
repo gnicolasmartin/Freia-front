@@ -24,7 +24,7 @@ import type {
 } from "@/types/calendar";
 import { DEFAULT_SCHEDULE } from "@/types/calendar";
 
-const SEED_KEY = "freia_seed_rincon_v11";
+const SEED_KEY = "freia_seed_rincon_v12";
 const COMPANY_ID = "company_rincon";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -689,6 +689,7 @@ export function seedDemoRincon(): boolean {
   localStorage.removeItem("freia_seed_rincon_v8");
   localStorage.removeItem("freia_seed_rincon_v9");
   localStorage.removeItem("freia_seed_rincon_v10");
+  localStorage.removeItem("freia_seed_rincon_v11");
 
   // ALWAYS clean other demo data (runs even if already seeded)
   const cleaned = cleanOtherDemoData();
@@ -774,7 +775,7 @@ export function seedDemoRincon(): boolean {
     upsert("freia_audit_log", demoAudit);
 
     localStorage.setItem(SEED_KEY, "1");
-    console.log("[seed-demo-rincon] v9 done.");
+    console.log("[seed-demo-rincon] v12 done.");
     return true;
   } catch (err) {
     console.error("[seed-demo-rincon] error:", err);
