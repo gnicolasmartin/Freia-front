@@ -62,6 +62,8 @@ interface CalendarsContextType {
   addBooking: (data: BookingFormData) => Booking;
   updateBooking: (id: string, data: Partial<BookingFormData>) => void;
   cancelBooking: (id: string) => void;
+  /** Merge bookings created server-side (e.g., via WhatsApp flow). Deduplicates by id. */
+  mergeServerBookings: (serverBookings: Booking[]) => void;
 
   getAvailableSlots: (calendarId: string, date: string, durationMinutes?: number) => AvailableSlot[];
   validateBooking: (
@@ -257,6 +259,15 @@ export function CalendarsProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
+  const mergeServerBookings = (serverBookings: Booking[]) => {
+    const existingIds = new Set(bookings.map((b) => b.id));
+    const newBookings = serverBookings.filter((b) => !existingIds.has(b.id));
+    if (newBookings.length > 0) {
+      console.info(`[CalendarsProvider] Merging ${newBookings.length} server-side bookings`);
+      persistBookings([...bookings, ...newBookings]);
+    }
+  };
+
   // ── Availability ───────────────────────────────────────────
 
   const getAvailableSlots = (calendarId: string, date: string, durationMinutes?: number): AvailableSlot[] => {
@@ -356,6 +367,7 @@ export function CalendarsProvider({ children }: { children: React.ReactNode }) {
     addBooking,
     updateBooking,
     cancelBooking,
+    mergeServerBookings,
     getAvailableSlots,
     validateBooking: validateBookingFn,
   };

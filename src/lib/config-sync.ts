@@ -91,3 +91,30 @@ export async function syncConfigToBackend(
 export function resetSyncHash(): void {
   lastSyncedHash = "";
 }
+
+// ─── Reverse sync (backend → frontend) ──────────────────────────────────────
+
+/**
+ * Fetch server-side bookings from the backend config blob.
+ * Returns bookings created by the server (source: "flow") or all bookings.
+ */
+export async function fetchServerBookings(
+  companyId: string
+): Promise<{ bookings: unknown[]; error?: string }> {
+  try {
+    const res = await fetch(
+      `/api/processing-config/${encodeURIComponent(companyId)}`,
+      { method: "GET" }
+    );
+    if (!res.ok) {
+      return { bookings: [], error: `HTTP ${res.status}` };
+    }
+    const data = await res.json();
+    const config = data?.config as Record<string, unknown> | undefined;
+    const calendarData = config?.calendarData as Record<string, unknown> | undefined;
+    const bookings = (calendarData?.bookings as unknown[]) || [];
+    return { bookings };
+  } catch (err) {
+    return { bookings: [], error: String(err) };
+  }
+}

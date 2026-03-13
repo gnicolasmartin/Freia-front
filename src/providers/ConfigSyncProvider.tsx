@@ -13,12 +13,15 @@ import { useCalendars } from "@/providers/CalendarsProvider";
 import {
   syncConfigToBackend,
   resetSyncHash,
+  fetchServerBookings,
   type ProcessingConfigBlob,
 } from "@/lib/config-sync";
 import { getBusinessHoursConfig } from "@/lib/business-hours";
 import { getSessionCompanyId } from "@/lib/get-session-company";
+import type { Booking } from "@/types/calendar";
 
 const DEBOUNCE_MS = 5_000;
+const REVERSE_SYNC_MS = 30_000; // Poll server bookings every 30s
 
 export function ConfigSyncProvider({ children }: { children: ReactNode }) {
   const { agents } = useAgents();
@@ -29,7 +32,7 @@ export function ConfigSyncProvider({ children }: { children: ReactNode }) {
   const { products, variantTypes, discounts } = useProducts();
   const { getRawKey } = useLLMConfig();
   const { getChannelConfig } = useChannels();
-  const { calendars, resources, bookings, blockedPeriods, minStayRules } = useCalendars();
+  const { calendars, resources, bookings, blockedPeriods, minStayRules, mergeServerBookings } = useCalendars();
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCompanyRef = useRef<string | undefined>(undefined);
@@ -115,6 +118,27 @@ export function ConfigSyncProvider({ children }: { children: ReactNode }) {
     doSync();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reverse sync: poll server for bookings created via WhatsApp flows
+  useEffect(() => {
+    const poll = async () => {
+      const companyId = getSessionCompanyId();
+      if (!companyId) return;
+      const { bookings: serverBookings, error } = await fetchServerBookings(companyId);
+      if (error) return;
+      if (serverBookings.length > 0) {
+        mergeServerBookings(serverBookings as Booking[]);
+      }
+    };
+
+    const interval = setInterval(poll, REVERSE_SYNC_MS);
+    // First poll after a short delay (let initial sync complete first)
+    const initialTimeout = setTimeout(poll, 10_000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(initialTimeout);
+    };
+  }, [mergeServerBookings]);
 
   return <>{children}</>;
 }
