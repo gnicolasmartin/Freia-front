@@ -736,7 +736,7 @@ export function seedDemoRincon(): boolean {
     upsert("freia_calendar_resources", RESOURCES);
     upsert("freia_calendar_blocks", BLOCKED_PERIODS);
     upsert("freia_calendar_min_stay_rules", MIN_STAY_RULES);
-    upsert("freia_bookings", BOOKINGS);
+    upsert("freia_bookings", BOOKINGS, "confirmationCode");
 
     // Seed flow, agent, front
     upsert("freia_flows", [FLOW], "name");

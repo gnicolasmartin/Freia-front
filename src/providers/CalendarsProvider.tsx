@@ -260,8 +260,13 @@ export function CalendarsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const mergeServerBookings = (serverBookings: Booking[]) => {
+    // Deduplicate by both id AND confirmationCode to handle cases where
+    // the same booking exists with different IDs (e.g., after demo re-seed)
     const existingIds = new Set(bookings.map((b) => b.id));
-    const newBookings = serverBookings.filter((b) => !existingIds.has(b.id));
+    const existingCodes = new Set(bookings.map((b) => b.confirmationCode));
+    const newBookings = serverBookings.filter(
+      (b) => !existingIds.has(b.id) && !existingCodes.has(b.confirmationCode)
+    );
     if (newBookings.length > 0) {
       console.info(`[CalendarsProvider] Merging ${newBookings.length} server-side bookings`);
       persistBookings([...bookings, ...newBookings]);
